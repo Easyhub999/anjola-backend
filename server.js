@@ -15,20 +15,25 @@ const contactRoutes = require('./routes/contact');
 // Initialize Express app
 const app = express();
 
-// Middleware
+// ===============================
+// FIXED CORS CONFIGURATION
+// ===============================
 app.use(cors({
   origin: [
-    "https://anjola-frontend.vercel.app",
-    "http://localhost:3000"
+    "https://anjola-frontend.vercel.app",   // deployment
+    "http://localhost:3001"                 // your dev machine
   ],
-  methods: ["GET", "POST", "PUT", "DELETE"],
-  credentials: true
+  methods: ["GET", "POST", "PUT", "DELETE", "PATCH"],
+  allowedHeaders: ["Content-Type", "Authorization"]
 }));
 
+// Middleware
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-// Database connection
+// ===============================
+// DATABASE CONNECTION
+// ===============================
 mongoose.connect(process.env.MONGODB_URI, {
   useNewUrlParser: true,
   useUnifiedTopology: true
@@ -36,27 +41,33 @@ mongoose.connect(process.env.MONGODB_URI, {
 .then(() => console.log('✅ MongoDB Connected Successfully'))
 .catch((err) => console.error('❌ MongoDB Connection Error:', err));
 
-// Routes
+// ===============================
+// ROUTES
+// ===============================
 app.use('/api/auth', authRoutes);
 app.use('/api/products', productRoutes);
 app.use('/api/orders', orderRoutes);
 app.use('/api/contact', contactRoutes);
 
-// Health check route
+// Health Check
 app.get('/api/health', (req, res) => {
   res.json({ status: 'Server is running', timestamp: new Date() });
 });
 
-// Error handling middleware
+// ===============================
+// ERROR HANDLER
+// ===============================
 app.use((err, req, res, next) => {
-  console.error(err.stack);
+  console.error("🔥 ERROR:", err.stack);
   res.status(500).json({
     message: 'Something went wrong!',
     error: process.env.NODE_ENV === 'development' ? err.message : undefined
   });
 });
 
-// Start server
+// ===============================
+// START SERVER
+// ===============================
 const PORT = process.env.PORT || 5000;
 app.listen(PORT, () => {
   console.log(`🚀 Server running on port ${PORT}`);
