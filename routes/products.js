@@ -10,16 +10,9 @@ const {
 const { protect, adminOnly } = require('../middleware/auth');
 const { upload } = require('../config/cloudinary');
 
-// Public routes
-router.get('/', getAllProducts);
-router.get('/:id', getProduct);
-
-// Admin routes
-router.post('/', protect, adminOnly, createProduct);
-router.put('/:id', protect, adminOnly, updateProduct);
-router.delete('/:id', protect, adminOnly, deleteProduct);
-
-// Image upload route
+// ================================
+// IMAGE UPLOAD ROUTE (PLACE FIRST)
+// ================================
 router.post('/upload-image', protect, adminOnly, upload.single('image'), (req, res) => {
   try {
     if (!req.file) {
@@ -37,5 +30,18 @@ router.post('/upload-image', protect, adminOnly, upload.single('image'), (req, r
     res.status(500).json({ message: 'Error uploading image' });
   }
 });
+
+// ================================
+// PUBLIC ROUTES
+// ================================
+router.get('/', getAllProducts);
+router.get('/:id', getProduct);
+
+// ================================
+// ADMIN ROUTES
+// ================================
+router.post('/', protect, adminOnly, createProduct);
+router.put('/:id', protect, adminOnly, updateProduct);
+router.delete('/:id', protect, adminOnly, deleteProduct);
 
 module.exports = router;
