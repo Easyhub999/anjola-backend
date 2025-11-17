@@ -2,27 +2,27 @@ const express = require('express');
 const router = express.Router();
 const { register, login, getMe } = require('../controllers/authController');
 const { protect } = require('../middleware/auth');
+const User = require('../models/User');
 
-// Public routes
+// =============================
+// PUBLIC ROUTES
+// =============================
 router.post('/register', register);
 router.post('/login', login);
 
-// Protected routes
+// =============================
+// PROTECTED ROUTE
+// =============================
 router.get('/me', protect, getMe);
 
-module.exports = router;
-
-// =======================================
+// =============================
 // TEMPORARY ADMIN CREATION ROUTE
-// DELETE AFTER FIRST USE
-// =======================================
-
-const User = require('../models/User');
-
-app.get('/api/auth/create-admin', async (req, res) => {
+// VISIT ONLY ONCE: /api/auth/create-admin
+// =============================
+router.get('/create-admin', async (req, res) => {
   try {
     const existing = await User.findOne({ email: "admin@anjola.com" });
-
+    
     if (existing) {
       return res.json({ message: "Admin already exists", admin: existing });
     }
@@ -39,9 +39,10 @@ app.get('/api/auth/create-admin', async (req, res) => {
       message: "Admin created successfully",
       admin,
     });
-
   } catch (err) {
     console.error(err);
     res.status(500).json({ message: "Error creating admin" });
   }
 });
+
+module.exports = router;
