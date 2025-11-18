@@ -20,8 +20,10 @@ const app = express();
 // ===============================
 app.use(cors({
   origin: [
-    "https://anjola-frontend.vercel.app",   // deployment
-    "http://localhost:3001"                 // your dev machine
+    "https://anjolaaestheticsng.com",     // NEW DOMAIN
+    "https://www.anjolaaestheticsng.com", // WWW version
+    "https://anjola-frontend.vercel.app", // OLD FRONTEND
+    "http://localhost:3001"               // DEV
   ],
   methods: ["GET", "POST", "PUT", "DELETE", "PATCH"],
   allowedHeaders: ["Content-Type", "Authorization"]
