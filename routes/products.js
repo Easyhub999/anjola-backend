@@ -6,102 +6,54 @@ const {
   getProduct,
   createProduct,
   updateProduct,
-  deleteProduct,
-  addReview
+  deleteProduct
 } = require('../controllers/productController');
 
 const { protect, adminOnly } = require('../middleware/auth');
 const { upload } = require('../config/cloudinary');
-const { protect, adminOnly } = require('../middleware/auth');
 
-// ======================================================
+
+// ======================================
 // 1️⃣ MULTIPLE IMAGE UPLOAD (Admin Only)
-// ======================================================
+// ======================================
 router.post(
-  '/upload-images',
+  '/upload-image',
   protect,
   adminOnly,
-  upload.array('images', 10), // max 10 images
+  upload.single('image'),
   (req, res) => {
     try {
-      if (!req.files || req.files.length === 0) {
-        return res.status(400).json({ message: 'No image files provided' });
+      if (!req.file) {
+        return res.status(400).json({ message: 'No image file provided' });
       }
-
-      const imageUrls = req.files.map((file) => file.path);
 
       res.json({
         success: true,
-        images: imageUrls,
-        count: imageUrls.length,
-        message: 'Images uploaded successfully'
+        imageUrl: req.file.path,
+        publicId: req.file.filename,
+        message: 'Image uploaded successfully'
       });
     } catch (error) {
       console.error('Image upload error:', error);
-      res.status(500).json({ message: 'Error uploading images' });
+      res.status(500).json({ message: 'Error uploading image' });
     }
   }
 );
 
+
 // ================================
-// 5️⃣ ADD REVIEW (LOGIN REQUIRED)
-// ================================
-router.post(
-  '/:id/reviews',
-  protect,          // user must be logged in
-  async (req, res) => {
-    try {
-      const { rating, comment } = req.body;
-
-      if (!rating || !comment) {
-        return res.status(400).json({ message: "Rating and comment required" });
-      }
-
-      const product = await Product.findById(req.params.id);
-
-      if (!product) {
-        return res.status(404).json({ message: "Product not found" });
-      }
-
-      const newReview = {
-        userName: req.user.name,   // from logged-in user
-        rating,
-        comment,
-        createdAt: new Date()
-      };
-
-      product.reviews.push(newReview);
-      await product.save();
-
-      res.status(201).json({
-        success: true,
-        message: "Review added successfully",
-        data: product.reviews
-      });
-
-    } catch (error) {
-      console.error("Add review error:", error);
-      res.status(500).json({ message: "Server error adding review" });
-    }
-  }
-);
-
-// ======================================================
 // 2️⃣ PUBLIC ROUTES
-// ======================================================
+// ================================
 router.get('/', getAllProducts);
 
-// Single product
-router.get('/:id', getProduct);
+// ================================
+// 3️⃣ SINGLE PRODUCT ROUTE
+// ================================
+router.get('/product/:id', getProduct);
 
-// ======================================================
-// 3️⃣ PRODUCT REVIEWS (Public but user required)
-// ======================================================
-router.post('/:id/review', protect, addReview);
-
-// ======================================================
-// 4️⃣ ADMIN CRUD ROUTES
-// ======================================================
+// ================================
+// 4️⃣ ADMIN PRODUCT CRUD
+// ================================
 router.post('/', protect, adminOnly, createProduct);
 router.put('/:id', protect, adminOnly, updateProduct);
 router.delete('/:id', protect, adminOnly, deleteProduct);
