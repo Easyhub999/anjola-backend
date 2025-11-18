@@ -4,7 +4,6 @@ const { Resend } = require('resend');
 
 const resend = new Resend(process.env.RESEND_API_KEY);
 
-// POST /api/contact
 router.post('/', async (req, res) => {
   try {
     const { name, email, message } = req.body;
@@ -14,8 +13,8 @@ router.post('/', async (req, res) => {
     }
 
     const data = await resend.emails.send({
-      from: "Anjola Aesthetics <onboarding@resend.dev>",
-      to: process.env.TARGET_EMAIL,
+      from: "Anjola Aesthetics <no-reply@resend.dev>",  // FIXED
+      to: process.env.TARGET_EMAIL, 
       subject: `✨ New Contact Message From ${name}`,
       html: `
         <p><strong>Name:</strong> ${name}</p>
