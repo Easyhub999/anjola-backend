@@ -162,11 +162,8 @@ exports.addReview = async (req, res) => {
     if (!product)
       return res.status(404).json({ message: "Product not found" });
 
-    // Correct: get username from authenticated user
-    const userName = req.user?.name || "Anonymous User";
-
     const newReview = {
-      userName,
+      name: userName = req.user?.name || "Anonymous User",
       rating,
       comment,
       createdAt: new Date(),
@@ -180,7 +177,7 @@ exports.addReview = async (req, res) => {
       message: "Review added successfully",
       data: product,
     });
-    
+
   } catch (error) {
     console.error("Add review error:", error);
     return res.status(500).json({ message: "Server error" });
