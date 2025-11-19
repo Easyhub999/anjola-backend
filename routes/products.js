@@ -54,7 +54,7 @@ router.get('/:id', getProduct);
 // =========================================================
 // 3️⃣ ADD REVIEW 
 // =========================================================
-router.post('/:id/reviews', productController.addReview);
+router.post('/:id/reviews', addReview);
 
 
 // =========================================================
