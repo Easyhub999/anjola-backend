@@ -1,3 +1,8 @@
+// =====================================================
+// PRODUCT CONTROLLER (FINAL CLEAN VERSION)
+// Supports: multiple images, sizes, colors, reviews
+// =====================================================
+
 const Product = require('../models/Product');
 
 // =====================================================
@@ -48,7 +53,36 @@ exports.getProduct = async (req, res) => {
 // =====================================================
 exports.createProduct = async (req, res) => {
   try {
-    const product = await Product.create(req.body);
+    const {
+      name,
+      description,
+      price,
+      category,
+      images,
+      sizes,
+      colors,
+      featured,
+      inStock,
+    } = req.body;
+
+    // 🔥 Validation for multiple images
+    if (!images || !Array.isArray(images) || images.length === 0) {
+      return res.status(400).json({
+        message: "At least one product image is required",
+      });
+    }
+
+    const product = await Product.create({
+      name,
+      description,
+      price,
+      category,
+      images,
+      sizes: sizes || [],
+      colors: colors || [],
+      featured: featured || false,
+      inStock: inStock ?? true,
+    });
 
     return res.status(201).json({
       success: true,
@@ -65,9 +99,18 @@ exports.createProduct = async (req, res) => {
 // =====================================================
 exports.updateProduct = async (req, res) => {
   try {
+    const updatedData = req.body;
+
+    // 🔥 Ensure updated images remain valid array
+    if (updatedData.images && !Array.isArray(updatedData.images)) {
+      return res.status(400).json({
+        message: "Images must be an array",
+      });
+    }
+
     const product = await Product.findByIdAndUpdate(
       req.params.id,
-      req.body,
+      updatedData,
       { new: true, runValidators: true }
     );
 
@@ -109,7 +152,9 @@ exports.addReview = async (req, res) => {
     const { rating, comment } = req.body;
 
     if (!rating || !comment) {
-      return res.status(400).json({ message: "Rating and comment required" });
+      return res.status(400).json({
+        message: "Rating and comment are required",
+      });
     }
 
     const product = await Product.findById(req.params.id);
@@ -118,7 +163,7 @@ exports.addReview = async (req, res) => {
       return res.status(404).json({ message: "Product not found" });
 
     const newReview = {
-      userName: req.user.name,
+      userName: req.user?.name || "Anonymous User",
       rating,
       comment,
       createdAt: new Date(),
