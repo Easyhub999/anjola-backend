@@ -1,7 +1,4 @@
-// =====================================================
-// PRODUCT CONTROLLER (FINAL CLEAN VERSION)
-// Supports: multiple images, sizes, colors, reviews
-// =====================================================
+// backend/controllers/productController.js
 
 const Product = require('../models/Product');
 
@@ -11,7 +8,6 @@ const Product = require('../models/Product');
 exports.getAllProducts = async (req, res) => {
   try {
     const { category, search, featured } = req.query;
-
     let query = {};
 
     if (category && category !== "all") query.category = category;
@@ -37,7 +33,6 @@ exports.getAllProducts = async (req, res) => {
 exports.getProduct = async (req, res) => {
   try {
     const product = await Product.findById(req.params.id);
-
     if (!product)
       return res.status(404).json({ message: "Product not found" });
 
@@ -65,7 +60,6 @@ exports.createProduct = async (req, res) => {
       inStock,
     } = req.body;
 
-    // 🔥 Validation for multiple images
     if (!images || !Array.isArray(images) || images.length === 0) {
       return res.status(400).json({
         message: "At least one product image is required",
@@ -80,14 +74,11 @@ exports.createProduct = async (req, res) => {
       images,
       sizes: sizes || [],
       colors: colors || [],
-      featured: featured || false,
+      featured: !!featured,
       inStock: inStock ?? true,
     });
 
-    return res.status(201).json({
-      success: true,
-      data: product,
-    });
+    return res.status(201).json({ success: true, data: product });
   } catch (error) {
     console.error("Create product error:", error);
     return res.status(500).json({ message: "Server error" });
@@ -101,11 +92,8 @@ exports.updateProduct = async (req, res) => {
   try {
     const updatedData = req.body;
 
-    // 🔥 Ensure updated images remain valid array
     if (updatedData.images && !Array.isArray(updatedData.images)) {
-      return res.status(400).json({
-        message: "Images must be an array",
-      });
+      return res.status(400).json({ message: "Images must be an array" });
     }
 
     const product = await Product.findByIdAndUpdate(
@@ -130,7 +118,6 @@ exports.updateProduct = async (req, res) => {
 exports.deleteProduct = async (req, res) => {
   try {
     const product = await Product.findByIdAndDelete(req.params.id);
-
     if (!product)
       return res.status(404).json({ message: "Product not found" });
 
@@ -145,28 +132,27 @@ exports.deleteProduct = async (req, res) => {
 };
 
 // =====================================================
-// ADD REVIEW (User must be logged in)
+// ADD REVIEW  (No login required – uses name from body)
 // =====================================================
 exports.addReview = async (req, res) => {
   try {
-    const { rating, comment } = req.body;
+    const { name, rating, comment } = req.body;
 
-    if (!rating || !comment) {
+    if (!name || !rating || !comment) {
       return res.status(400).json({
-        message: "Rating and comment are required",
+        message: "Name, rating and comment are required",
       });
     }
 
     const product = await Product.findById(req.params.id);
-
     if (!product)
       return res.status(404).json({ message: "Product not found" });
 
     const newReview = {
-      name: userName = req.user?.name || "Anonymous User",
+      name,
       rating,
       comment,
-      createdAt: new Date(),
+      date: new Date(),
     };
 
     product.reviews.push(newReview);
@@ -177,7 +163,6 @@ exports.addReview = async (req, res) => {
       message: "Review added successfully",
       data: product,
     });
-
   } catch (error) {
     console.error("Add review error:", error);
     return res.status(500).json({ message: "Server error" });

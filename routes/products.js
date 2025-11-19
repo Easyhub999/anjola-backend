@@ -52,9 +52,9 @@ router.get('/:id', getProduct);
 
 
 // =========================================================
-// 3️⃣ ADD REVIEW (User must login)
+// 3️⃣ ADD REVIEW 
 // =========================================================
-router.post('/:id/review', protect, addReview);
+router.post('/:id/reviews', productController.addReview);
 
 
 // =========================================================
