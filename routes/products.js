@@ -6,16 +6,17 @@ const {
   getProduct,
   createProduct,
   updateProduct,
-  deleteProduct
+  deleteProduct,
+  addReview
 } = require('../controllers/productController');
 
 const { protect, adminOnly } = require('../middleware/auth');
 const { upload } = require('../config/cloudinary');
 
 
-// ======================================
-// 1️⃣ MULTIPLE IMAGE UPLOAD (Admin Only)
-// ======================================
+// =========================================================
+// 1️⃣ UPLOAD SINGLE PRODUCT IMAGE (Admin Only)
+// =========================================================
 router.post(
   '/upload-image',
   protect,
@@ -27,35 +28,43 @@ router.post(
         return res.status(400).json({ message: 'No image file provided' });
       }
 
-      res.json({
+      return res.json({
         success: true,
         imageUrl: req.file.path,
         publicId: req.file.filename,
         message: 'Image uploaded successfully'
       });
-    } catch (error) {
-      console.error('Image upload error:', error);
-      res.status(500).json({ message: 'Error uploading image' });
+    } catch (err) {
+      console.error('Upload error:', err);
+      return res.status(500).json({ message: 'Error uploading image' });
     }
   }
 );
 
 
-// ================================
+// =========================================================
 // 2️⃣ PUBLIC ROUTES
-// ================================
+// =========================================================
 router.get('/', getAllProducts);
 
-// ================================
-// 3️⃣ SINGLE PRODUCT ROUTE
-// ================================
-router.get('/product/:id', getProduct);
+// Get single product
+router.get('/:id', getProduct);
 
-// ================================
-// 4️⃣ ADMIN PRODUCT CRUD
-// ================================
+
+// =========================================================
+// 3️⃣ ADD REVIEW (User must login)
+// =========================================================
+router.post('/:id/review', protect, addReview);
+
+
+// =========================================================
+// 4️⃣ ADMIN: CREATE / UPDATE / DELETE PRODUCT
+// =========================================================
 router.post('/', protect, adminOnly, createProduct);
+
 router.put('/:id', protect, adminOnly, updateProduct);
+
 router.delete('/:id', protect, adminOnly, deleteProduct);
+
 
 module.exports = router;
