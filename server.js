@@ -52,8 +52,8 @@ app.use('/api/orders', orderRoutes);
 app.use('/api/contact', contactRoutes);
 
 // Health Check
-app.get('/api/health', (req, res) => {
-  res.json({ status: 'Server is running', timestamp: new Date() });
+app.get("/", (req, res) => {
+  res.send("Anjola Backend is Running Successfully");
 });
 
 // ===============================
