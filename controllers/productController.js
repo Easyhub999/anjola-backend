@@ -163,7 +163,7 @@ exports.addReview = async (req, res) => {
       return res.status(404).json({ message: "Product not found" });
 
     const newReview = {
-      userName: req.user?.name || "Anonymous User",
+      userName: req.body.userName || "Anonymous User",
       rating,
       comment,
       createdAt: new Date(),
