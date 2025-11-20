@@ -57,7 +57,11 @@ exports.createProduct = async (req, res) => {
       sizes,
       colors,
       featured,
+      quantity,
+      lowStockWarningAt,
       inStock,
+      autoHideWhenZero,
+      visible
     } = req.body;
 
     if (!images || !Array.isArray(images) || images.length === 0) {
@@ -75,7 +79,16 @@ exports.createProduct = async (req, res) => {
       sizes: sizes || [],
       colors: colors || [],
       featured: !!featured,
-      inStock: inStock ?? true,
+
+      // NEW INVENTORY FIELDS
+      quantity: quantity ?? 0,
+      lowStockWarningAt: lowStockWarningAt ?? 0,
+      inStock: inStock ?? (quantity > 0),
+
+      autoHideWhenZero: autoHideWhenZero ?? true,
+
+      // VISIBILITY
+      visible: visible ?? true
     });
 
     return res.status(201).json({ success: true, data: product });
@@ -92,6 +105,7 @@ exports.updateProduct = async (req, res) => {
   try {
     const updatedData = req.body;
 
+    // Ensure images is always an array
     if (updatedData.images && !Array.isArray(updatedData.images)) {
       return res.status(400).json({ message: "Images must be an array" });
     }

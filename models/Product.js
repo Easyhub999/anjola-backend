@@ -3,7 +3,6 @@ const mongoose = require('mongoose');
 // ===============================
 // REVIEW SUB-SCHEMA
 // ===============================
-
 const reviewSchema = new mongoose.Schema({
   name: { type: String, required: true },
   rating: { type: Number, required: true, min: 1, max: 5 },
@@ -34,44 +33,31 @@ const productSchema = new mongoose.Schema({
     min: 0
   },
 
+  // 🔥 DYNAMIC CATEGORY — NO ENUM ANYMORE
   category: {
     type: String,
     required: true,
-    enum: [
-      'bags',
-      'self care essentials',
-      'hair accessories',
-      'jewelries',
-      'sunglasses',
-      'totes bag',
-      'curated gift boxed package'
-    ]
+    trim: true,
   },
 
   // ============================
   // MULTIPLE IMAGES
   // ============================
   images: {
-    type: [String],   // Array of image URLs
+    type: [String],
     default: []
-  },
-
-  // (For old single-image compatibility)
-  image: {
-    type: String,
-    default: ""
   },
 
   // ============================
   // PRODUCT OPTIONS
   // ============================
   sizes: {
-    type: [String],   // e.g. ["S", "M", "L"]
+    type: [String],
     default: []
   },
 
   colors: {
-    type: [String],   // e.g. ["Black", "Pink", "Gold"]
+    type: [String],
     default: []
   },
 
@@ -88,7 +74,33 @@ const productSchema = new mongoose.Schema({
     default: false
   },
 
+  // ============================
+  // INVENTORY — NEW
+  // ============================
+  quantity: {
+    type: Number,
+    default: 0
+  },
+
+  lowStockWarningAt: {
+    type: Number,
+    default: 0
+  },
+
   inStock: {
+    type: Boolean,
+    default: true
+  },
+
+  autoHideWhenZero: {
+    type: Boolean,
+    default: true
+  },
+
+  // ============================
+  // VISIBILITY
+  // ============================
+  visible: {
     type: Boolean,
     default: true
   },
