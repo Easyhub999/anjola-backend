@@ -24,7 +24,7 @@ router.get('/test', async (req, res) => {
     console.log('Attempting to send email...');
 
     const result = await resend.emails.send({
-      from: "Anjola Aesthetics <onboarding@resend.dev>",
+      from: "Anjola Aesthetics <contact@anjolaaestheticsng.com>",
       to: process.env.TARGET_EMAIL,
       subject: "🧪 Test Email from Anjola Aesthetics",
       html: "<h1>Success!</h1><p>If you see this, Resend is working correctly.</p>"
@@ -81,7 +81,7 @@ router.post('/', async (req, res) => {
     console.log('API Key first 10 chars:', process.env.RESEND_API_KEY?.substring(0, 10));
     
     const emailData = {
-      from: "Anjola Aesthetics <onboarding@resend.dev>",
+      from: "Anjola Aesthetics <contact@anjolaaestheticsng.com>",
       to: process.env.TARGET_EMAIL, 
       replyTo: email,
       subject: `✨ New Contact Message From ${name}`,
