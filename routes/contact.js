@@ -8,36 +8,50 @@ const resend = new Resend(process.env.RESEND_API_KEY);
 router.get('/test', async (req, res) => {
   try {
     console.log('=== RESEND TEST ===');
+    console.log('Resend object:', typeof resend);
+    console.log('Resend.emails:', typeof resend?.emails);
     console.log('API Key exists:', !!process.env.RESEND_API_KEY);
-    console.log('API Key prefix:', process.env.RESEND_API_KEY?.substring(0, 8));
+    console.log('API Key length:', process.env.RESEND_API_KEY?.length);
     console.log('Target email:', process.env.TARGET_EMAIL);
 
-    if (!process.env.RESEND_API_KEY) {
+    if (!resend || !resend.emails) {
       return res.status(500).json({ 
         success: false, 
-        error: 'RESEND_API_KEY not found in environment variables' 
+        error: 'Resend client not properly initialized'
       });
     }
 
-    if (!process.env.TARGET_EMAIL) {
-      return res.status(500).json({ 
-        success: false, 
-        error: 'TARGET_EMAIL not found in environment variables' 
-      });
-    }
+    console.log('Attempting to send email...');
 
-    const data = await resend.emails.send({
+    const result = await resend.emails.send({
       from: "Anjola Aesthetics <onboarding@resend.dev>",
       to: process.env.TARGET_EMAIL,
       subject: "🧪 Test Email from Anjola Aesthetics",
       html: "<h1>Success!</h1><p>If you see this, Resend is working correctly.</p>"
     });
 
-    console.log('✅ Test email sent:', data);
+    console.log('Raw Resend result:', JSON.stringify(result, null, 2));
+
+    if (!result) {
+      return res.status(500).json({
+        success: false,
+        error: 'Resend returned null/undefined'
+      });
+    }
+
+    if (result.error) {
+      return res.status(500).json({
+        success: false,
+        error: result.error.message || 'Unknown Resend error',
+        details: result.error
+      });
+    }
+
     res.json({ 
       success: true, 
       message: "Test email sent successfully!",
-      emailId: data.id,
+      emailId: result.id || result.data?.id || 'NO_ID_RETURNED',
+      fullResult: result,
       to: process.env.TARGET_EMAIL
     });
 
@@ -46,7 +60,7 @@ router.get('/test', async (req, res) => {
     res.status(500).json({ 
       success: false, 
       error: error.message,
-      name: error.name
+      stack: error.stack
     });
   }
 });
