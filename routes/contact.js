@@ -56,38 +56,55 @@ router.post('/', async (req, res) => {
   try {
     const { name, email, message } = req.body;
 
+    console.log('📥 Received:', { name, email });
+
     if (!name || !email || !message) {
       return res.status(400).json({ message: "All fields are required" });
     }
 
-    console.log('📧 Sending contact form email...');
+    console.log('📧 Sending to:', process.env.TARGET_EMAIL);
+    console.log('API Key present:', !!process.env.RESEND_API_KEY);
+    console.log('API Key first 10 chars:', process.env.RESEND_API_KEY?.substring(0, 10));
     
-    const data = await resend.emails.send({
+    const emailData = {
       from: "Anjola Aesthetics <onboarding@resend.dev>",
       to: process.env.TARGET_EMAIL, 
       replyTo: email,
       subject: `✨ New Contact Message From ${name}`,
       html: `
-        <div style="font-family: Arial, sans-serif; max-width: 600px;">
-          <h2 style="color: #ec4899;">New Contact Form Submission</h2>
-          <div style="background: #f9fafb; padding: 20px; border-radius: 8px; margin: 20px 0;">
-            <p><strong>Name:</strong> ${name}</p>
-            <p><strong>Email:</strong> <a href="mailto:${email}">${email}</a></p>
-            <p><strong>Message:</strong></p>
-            <p style="white-space: pre-wrap;">${message}</p>
-          </div>
+        <div style="font-family: Arial, sans-serif;">
+          <h2>New Contact Form Submission</h2>
+          <p><strong>Name:</strong> ${name}</p>
+          <p><strong>Email:</strong> ${email}</p>
+          <p><strong>Message:</strong></p>
+          <p>${message}</p>
         </div>
       `
+    };
+
+    console.log('Email data prepared:', { ...emailData, html: '[HTML CONTENT]' });
+
+    const data = await resend.emails.send(emailData);
+
+    console.log('✅ Resend response:', JSON.stringify(data, null, 2));
+
+    if (!data || !data.id) {
+      throw new Error('Resend returned no email ID - API key may be invalid');
+    }
+
+    res.json({ 
+      success: true,
+      message: "Message sent successfully", 
+      emailId: data.id 
     });
 
-    console.log('✅ Email sent:', data.id);
-    res.json({ message: "Message sent successfully", emailId: data.id });
-
   } catch (error) {
-    console.error("❌ Contact form error:", error);
+    console.error("❌ FULL ERROR:", error);
+    console.error("Error stack:", error.stack);
+    
     res.status(500).json({ 
-      message: "Error sending message",
-      error: process.env.NODE_ENV === 'development' ? error.message : undefined
+      success: false,
+      message: error.message || "Error sending message"
     });
   }
 });
