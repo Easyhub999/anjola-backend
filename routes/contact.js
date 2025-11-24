@@ -66,55 +66,55 @@ router.get('/test', async (req, res) => {
 });
 
 // ACTUAL CONTACT FORM ENDPOINT
+// ACTUAL CONTACT FORM ENDPOINT
 router.post('/', async (req, res) => {
   try {
     const { name, email, message } = req.body;
 
-    console.log('📥 Received:', { name, email });
+    console.log('📥 Received contact form:', { name, email });
 
     if (!name || !email || !message) {
       return res.status(400).json({ message: "All fields are required" });
     }
 
     console.log('📧 Sending to:', process.env.TARGET_EMAIL);
-    console.log('API Key present:', !!process.env.RESEND_API_KEY);
-    console.log('API Key first 10 chars:', process.env.RESEND_API_KEY?.substring(0, 10));
     
-    const emailData = {
+    const result = await resend.emails.send({
       from: "Anjola Aesthetics <contact@anjolaaestheticsng.com>",
       to: process.env.TARGET_EMAIL, 
       replyTo: email,
       subject: `✨ New Contact Message From ${name}`,
       html: `
-        <div style="font-family: Arial, sans-serif;">
-          <h2>New Contact Form Submission</h2>
-          <p><strong>Name:</strong> ${name}</p>
-          <p><strong>Email:</strong> ${email}</p>
-          <p><strong>Message:</strong></p>
-          <p>${message}</p>
+        <div style="font-family: Arial, sans-serif; max-width: 600px;">
+          <h2 style="color: #ec4899;">New Contact Form Submission</h2>
+          <div style="background: #f9fafb; padding: 20px; border-radius: 8px; margin: 20px 0;">
+            <p><strong>Name:</strong> ${name}</p>
+            <p><strong>Email:</strong> <a href="mailto:${email}">${email}</a></p>
+            <p><strong>Message:</strong></p>
+            <p style="white-space: pre-wrap;">${message}</p>
+          </div>
         </div>
       `
-    };
+    });
 
-    console.log('Email data prepared:', { ...emailData, html: '[HTML CONTENT]' });
+    console.log('✅ Resend response:', JSON.stringify(result, null, 2));
 
-    const data = await resend.emails.send(emailData);
-
-    console.log('✅ Resend response:', JSON.stringify(data, null, 2));
-
-    if (!data || !data.id) {
-      throw new Error('Resend returned no email ID - API key may be invalid');
+    if (result.error) {
+      return res.status(500).json({
+        success: false,
+        message: result.error.message || 'Failed to send email',
+        error: result.error
+      });
     }
 
     res.json({ 
       success: true,
       message: "Message sent successfully", 
-      emailId: data.id 
+      emailId: result.id || result.data?.id || 'sent'
     });
 
   } catch (error) {
-    console.error("❌ FULL ERROR:", error);
-    console.error("Error stack:", error.stack);
+    console.error("❌ Contact form error:", error);
     
     res.status(500).json({ 
       success: false,
