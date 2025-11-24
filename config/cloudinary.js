@@ -22,8 +22,9 @@ const storage = new CloudinaryStorage({
     folder: 'anjola-aesthetics/products',
     allowed_formats: ['jpg', 'jpeg', 'png', 'webp', 'gif'],
     transformation: [
-      { width: 800, height: 800, crop: 'limit' },
-      { quality: 'auto' }
+      { width: 1500, height: 1500, crop: 'limit' }, // Increased for retina displays
+      { quality: 95 }, // High quality - 95 is excellent, 100 is lossless
+      { fetch_format: 'auto' } // Let Cloudinary choose best format (WebP for modern browsers)
     ]
   }
 });
@@ -32,7 +33,7 @@ const storage = new CloudinaryStorage({
 const upload = multer({
   storage: storage,
   limits: {
-    fileSize: 5 * 1024 * 1024 // 5MB limit
+    fileSize: 10 * 1024 * 1024 // Increased to 10MB to accommodate higher quality images
   },
   fileFilter: (req, file, cb) => {
     // Check file type
