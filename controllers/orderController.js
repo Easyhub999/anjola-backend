@@ -187,3 +187,35 @@ exports.updateOrderStatus = async (req, res) => {
     res.status(500).json({ message: 'Server error' });
   }
 };
+
+exports.createManualOrder = async (req, res) => {
+  try {
+    const { customerInfo, items, totalAmount, paymentStatus, status, isManualOrder } = req.body;
+
+    // Generate order number with MAN prefix for manual orders
+    const orderNumber = `MAN${Date.now().toString().slice(-8)}`;
+
+    const order = await Order.create({
+      user: req.user ? req.user._id : null,
+      orderNumber,
+      customerInfo,
+      items,
+      totalAmount,
+      paymentStatus: paymentStatus || 'pending',
+      status: status || 'pending',
+      isManualOrder: isManualOrder || true
+    });
+
+    res.status(201).json({
+      success: true,
+      data: order
+    });
+  } catch (error) {
+    console.error('Create manual order error:', error);
+    res.status(500).json({ 
+      success: false,
+      message: 'Server error creating manual order',
+      error: error.message 
+    });
+  }
+};

@@ -21,5 +21,6 @@ router.get('/my-orders', protect, getMyOrders);
 // Admin routes
 router.get('/', protect, adminOnly, getAllOrders);
 router.put('/:id', protect, adminOnly, updateOrderStatus);
+router.post('/manual', protect, adminOnly, require('../controllers/orderController').createManualOrder);
 
 module.exports = router;
