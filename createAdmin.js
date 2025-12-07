@@ -26,7 +26,7 @@ async function createAdmin() {
     console.log('✅ MongoDB Connected');
 
     // Check if admin exists
-    const existingAdmin = await User.findOne({ email: 'admin@anjola.com' });
+    const existingAdmin = await User.findOne({ email: 'anjolaaestheticsng@gmail.com' });
     
     if (existingAdmin) {
       console.log('ℹ  Admin already exists!');
@@ -37,13 +37,13 @@ async function createAdmin() {
     // Create admin
     const admin = await User.create({
       name: 'Anjola Admin',
-      email: 'admin@anjola.com',
+      email: 'anjolaaestheticsng@gmail.com',
       password: 'admin123',
       role: 'admin'
     });
 
     console.log('✅ Admin user created!');
-    console.log('📧 Email: admin@anjola.com');
+    console.log('📧 Email: anjolaaestheticsng@gmail.com');
     console.log('🔑 Password: admin123');
 
     await mongoose.disconnect();
