@@ -6,6 +6,7 @@ exports.initializePayment = async (email, amount, metadata) => {
     email,
     amount,
     metadata,
+    callback_url: 'https://anjolaaestheticsng.com' // ✅Redirect to homepage
   });
 
   const options = {
