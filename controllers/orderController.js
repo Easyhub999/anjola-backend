@@ -1,6 +1,7 @@
 const Order = require('../models/Order');
 const { initializePayment, verifyPayment } = require('../services/paystackService');
 const { sendOrderConfirmation, sendPaymentConfirmation } = require('../services/emailService');
+const crypto = require('crypto');
 
 // @desc    Create new order
 // @route   POST /api/orders
@@ -146,21 +147,25 @@ exports.verifyPaymentHandler = async (req, res) => {
   }
 };
 
-// @desc    Paystack Webhook
+// @desc    Paystack Webhook Handler
 // @route   POST /api/orders/paystack-webhook
-// @access  Public
+// @access  Public (verified by signature)
 exports.paystackWebhook = async (req, res) => {
-  const crypto = require('crypto');
-  
-  // Verify webhook signature
-  const hash = crypto
-    .createHmac('sha512', process.env.PAYSTACK_SECRET_KEY)
-    .update(JSON.stringify(req.body))
-    .digest('hex');
-    
-  if (hash === req.headers['x-paystack-signature']) {
+  try {
+    // Verify webhook signature
+    const hash = crypto
+      .createHmac('sha512', process.env.PAYSTACK_SECRET_KEY)
+      .update(JSON.stringify(req.body))
+      .digest('hex');
+
+    if (hash !== req.headers['x-paystack-signature']) {
+      console.log('❌ Invalid webhook signature');
+      return res.sendStatus(401);
+    }
+
     const event = req.body;
-    
+    console.log('📥 Webhook event received:', event.event);
+
     // Handle successful charge
     if (event.event === 'charge.success') {
       const orderId = event.data.metadata.orderId;
@@ -188,17 +193,23 @@ exports.paystackWebhook = async (req, res) => {
             customerInfo: order.customerInfo,
             totalAmount: order.totalAmount,
             orderNumber: order.orderNumber,
-            paymentReference: reference
+            paymentReference: reference,
+            items: order.items
           });
-          console.log('📧 Payment confirmation email sent');
+          console.log('📧 Order confirmation email sent!');
         } catch (emailError) {
           console.error('⚠️ Email error:', emailError);
         }
+      } else {
+        console.error('❌ Order not found:', orderId);
       }
     }
+    
+    res.sendStatus(200);
+  } catch (error) {
+    console.error('💥 Webhook error:', error);
+    res.sendStatus(500);
   }
-  
-  res.sendStatus(200);
 };
 
 // @desc    Get all orders (Admin)
@@ -269,6 +280,9 @@ exports.updateOrderStatus = async (req, res) => {
   }
 };
 
+// @desc    Create manual order
+// @route   POST /api/orders/manual
+// @access  Private/Admin
 exports.createManualOrder = async (req, res) => {
   try {
     const { customerInfo, items, totalAmount, paymentStatus, status, isManualOrder } = req.body;
