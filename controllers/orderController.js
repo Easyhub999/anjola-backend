@@ -1,6 +1,12 @@
 const Order = require('../models/Order');
 const { initializePayment, verifyPayment } = require('../services/paystackService');
-const { sendOrderConfirmation, sendPaymentConfirmation } = require('../services/emailService');
+const { 
+  sendOrderConfirmation, 
+  sendPaymentConfirmation,
+  sendShippedNotification,
+  sendDeliveredNotification,
+  sendCancelledNotification
+} = require('../services/emailService');
 const crypto = require('crypto');
 
 // @desc    Create new order
@@ -118,12 +124,12 @@ exports.verifyPaymentHandler = async (req, res) => {
           customerInfo: order.customerInfo,
           totalAmount: order.totalAmount,
           orderNumber: order.orderNumber,
-          paymentReference: reference
+          paymentReference: reference,
+          items: order.items
         });
         console.log('✅ Email sent successfully');
       } catch (emailError) {
         console.error('⚠️ Email sending failed (non-critical):', emailError.message);
-        // Continue even if email fails
       }
 
       res.json({
@@ -135,7 +141,7 @@ exports.verifyPaymentHandler = async (req, res) => {
       console.error('❌ Payment not successful:', response);
       res.status(400).json({
         success: false,
-        message: 'Payment verification failed - payment status not successful'
+        message: 'Payment verification failed'
       });
     }
   } catch (error) {
@@ -196,7 +202,7 @@ exports.paystackWebhook = async (req, res) => {
             paymentReference: reference,
             items: order.items
           });
-          console.log('📧 Order confirmation email sent!');
+          console.log('📧 Payment confirmation email sent!');
         } catch (emailError) {
           console.error('⚠️ Email error:', emailError);
         }
@@ -253,21 +259,54 @@ exports.getMyOrders = async (req, res) => {
   }
 };
 
-// @desc    Update order status
+// @desc    Update order status (WITH EMAIL NOTIFICATIONS)
 // @route   PUT /api/orders/:id
 // @access  Private/Admin
 exports.updateOrderStatus = async (req, res) => {
   try {
-    const { status } = req.body;
+    const { status, trackingNumber } = req.body;
+    
+    const updateData = { status };
+    if (trackingNumber) {
+      updateData.trackingNumber = trackingNumber;
+    }
     
     const order = await Order.findByIdAndUpdate(
       req.params.id,
-      { status },
+      updateData,
       { new: true }
     );
     
     if (!order) {
       return res.status(404).json({ message: 'Order not found' });
+    }
+
+    // Send appropriate email notification based on status
+    try {
+      if (status === 'shipped') {
+        await sendShippedNotification({
+          customerInfo: order.customerInfo,
+          orderNumber: order.orderNumber,
+          trackingNumber: trackingNumber || order.trackingNumber
+        });
+        console.log('📧 Shipped notification sent');
+      } else if (status === 'delivered') {
+        await sendDeliveredNotification({
+          customerInfo: order.customerInfo,
+          orderNumber: order.orderNumber
+        });
+        console.log('📧 Delivered notification sent');
+      } else if (status === 'cancelled') {
+        await sendCancelledNotification({
+          customerInfo: order.customerInfo,
+          orderNumber: order.orderNumber,
+          refundInfo: 'Your refund will be processed within 5-7 business days.'
+        });
+        console.log('📧 Cancelled notification sent');
+      }
+    } catch (emailError) {
+      console.error('⚠️ Email notification error:', emailError);
+      // Don't fail the status update if email fails
     }
     
     res.json({
@@ -287,7 +326,6 @@ exports.createManualOrder = async (req, res) => {
   try {
     const { customerInfo, items, totalAmount, paymentStatus, status, isManualOrder } = req.body;
 
-    // Generate order number with MAN prefix for manual orders
     const orderNumber = `MAN${Date.now().toString().slice(-8)}`;
 
     const order = await Order.create({

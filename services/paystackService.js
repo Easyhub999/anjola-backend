@@ -1,5 +1,6 @@
 const https = require('https');
 
+// Initialize Paystack payment (NO callback_url)
 exports.initializePayment = async (email, amount, metadata) => {
   const params = JSON.stringify({
     email,
@@ -22,7 +23,11 @@ exports.initializePayment = async (email, amount, metadata) => {
   return new Promise((resolve, reject) => {
     const req = https.request(options, (res) => {
       let data = '';
-      res.on('data', (chunk) => { data += chunk; });
+
+      res.on('data', (chunk) => {
+        data += chunk;
+      });
+
       res.on('end', () => {
         try {
           resolve(JSON.parse(data));
@@ -31,12 +36,17 @@ exports.initializePayment = async (email, amount, metadata) => {
         }
       });
     });
-    req.on('error', (error) => reject(error));
+
+    req.on('error', (error) => {
+      reject(error);
+    });
+
     req.write(params);
     req.end();
   });
 };
 
+// Verify Paystack payment
 exports.verifyPayment = async (reference) => {
   const options = {
     hostname: 'api.paystack.co',
@@ -52,7 +62,11 @@ exports.verifyPayment = async (reference) => {
   return new Promise((resolve, reject) => {
     const req = https.request(options, (res) => {
       let data = '';
-      res.on('data', (chunk) => { data += chunk; });
+
+      res.on('data', (chunk) => {
+        data += chunk;
+      });
+
       res.on('end', () => {
         try {
           resolve(JSON.parse(data));
@@ -61,7 +75,11 @@ exports.verifyPayment = async (reference) => {
         }
       });
     });
-    req.on('error', (error) => reject(error));
+
+    req.on('error', (error) => {
+      reject(error);
+    });
+
     req.end();
   });
 };
