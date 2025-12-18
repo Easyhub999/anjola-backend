@@ -80,13 +80,17 @@ exports.verifyPaymentHandler = async (req, res) => {
   try {
     const { reference } = req.params;
 
+    console.log('🔍 Verifying payment reference:', reference);
+
     const response = await verifyPayment(reference);
 
-    console.log('Paystack verify response:', response);
+    console.log('✅ Paystack response received:', JSON.stringify(response, null, 2));
 
     if (response.status && response.data.status === 'success') {
-      // Update order payment status
       const orderId = response.data.metadata.orderId;
+      
+      console.log('💾 Updating order:', orderId);
+      
       const order = await Order.findByIdAndUpdate(
         orderId,
         {
@@ -97,13 +101,29 @@ exports.verifyPaymentHandler = async (req, res) => {
         { new: true }
       );
 
+      if (!order) {
+        console.error('❌ Order not found:', orderId);
+        return res.status(404).json({
+          success: false,
+          message: 'Order not found'
+        });
+      }
+
+      console.log('📧 Sending confirmation email...');
+
       // Send payment confirmation email
-      await sendPaymentConfirmation({
-        customerInfo: order.customerInfo,
-        totalAmount: order.totalAmount,
-        orderNumber: order.orderNumber,
-        paymentReference: reference
-      });
+      try {
+        await sendPaymentConfirmation({
+          customerInfo: order.customerInfo,
+          totalAmount: order.totalAmount,
+          orderNumber: order.orderNumber,
+          paymentReference: reference
+        });
+        console.log('✅ Email sent successfully');
+      } catch (emailError) {
+        console.error('⚠️ Email sending failed (non-critical):', emailError.message);
+        // Continue even if email fails
+      }
 
       res.json({
         success: true,
@@ -111,14 +131,18 @@ exports.verifyPaymentHandler = async (req, res) => {
         data: response.data
       });
     } else {
+      console.error('❌ Payment not successful:', response);
       res.status(400).json({
         success: false,
-        message: 'Payment verification failed'
+        message: 'Payment verification failed - payment status not successful'
       });
     }
   } catch (error) {
-    console.error('Payment verification error:', error);
-    res.status(500).json({ message: 'Server error verifying payment' });
+    console.error('💥 Payment verification error:', error);
+    res.status(500).json({ 
+      success: false,
+      message: 'Server error verifying payment: ' + error.message 
+    });
   }
 };
 

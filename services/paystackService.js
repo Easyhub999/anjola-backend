@@ -1,12 +1,12 @@
 const https = require('https');
 
-// Initialize Paystack payment
+// Initialize Payment
 exports.initializePayment = async (email, amount, metadata) => {
   const params = JSON.stringify({
     email,
-    amount: amount * 100,
+    amount,
     metadata,
-    callback_url: `${process.env.FRONTEND_URL}/payment/callback`
+    callback_url: `${process.env.FRONTEND_URL || 'https://anjolaestheticsng.com'}/checkout`
   });
 
   const options = {
@@ -29,11 +29,24 @@ exports.initializePayment = async (email, amount, metadata) => {
       });
 
       res.on('end', () => {
-        resolve(JSON.parse(data));
+        try {
+          const parsed = JSON.parse(data);
+
+          if (res.statusCode !== 200) {
+            console.error('Paystack initialization error:', parsed);
+            return reject(new Error(parsed.message || 'Payment initialization failed'));
+          }
+
+          resolve(parsed);
+        } catch (error) {
+          console.error('Failed to parse Paystack response:', error);
+          reject(new Error('Invalid response from payment provider'));
+        }
       });
     });
 
     req.on('error', (error) => {
+      console.error('Paystack request error:', error);
       reject(error);
     });
 
@@ -42,7 +55,7 @@ exports.initializePayment = async (email, amount, metadata) => {
   });
 };
 
-// Verify Paystack payment
+// Verify Payment
 exports.verifyPayment = async (reference) => {
   const options = {
     hostname: 'api.paystack.co',
@@ -64,21 +77,40 @@ exports.verifyPayment = async (reference) => {
       });
 
       res.on('end', () => {
-        const parsed = JSON.parse(data);
+        try {
+          const parsed = JSON.parse(data);
 
-        // 🔥 CRITICAL: handle Paystack HTTP errors explicitly
-        if (res.statusCode !== 200) {
-          return reject({
+          console.log('Paystack verification response:', {
             statusCode: res.statusCode,
-            paystackResponse: parsed
+            data: parsed
           });
-        }
 
-        resolve(parsed);
+          // Handle non-200 status codes
+          if (res.statusCode !== 200) {
+            console.error('Paystack verification failed:', {
+              statusCode: res.statusCode,
+              message: parsed.message,
+              response: parsed
+            });
+            return reject(new Error(parsed.message || `Payment verification failed with status ${res.statusCode}`));
+          }
+
+          // Even if status is 200, check if the response indicates success
+          if (!parsed.status) {
+            console.error('Paystack returned unsuccessful status:', parsed);
+            return reject(new Error(parsed.message || 'Payment verification was not successful'));
+          }
+
+          resolve(parsed);
+        } catch (error) {
+          console.error('Failed to parse Paystack verification response:', error);
+          reject(new Error('Invalid response from payment provider'));
+        }
       });
     });
 
     req.on('error', (error) => {
+      console.error('Paystack verification request error:', error);
       reject(error);
     });
 
