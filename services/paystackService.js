@@ -4,8 +4,8 @@ exports.initializePayment = async (email, amount, metadata) => {
   const params = JSON.stringify({
     email,
     amount,
-    metadata,
-    callback_url: 'https://anjolaestheticsng.com' // Simple - just homepage
+    metadata
+    // NO callback_url - users stay on Paystack success page
   });
 
   const options = {
@@ -25,13 +25,9 @@ exports.initializePayment = async (email, amount, metadata) => {
       res.on('data', (chunk) => { data += chunk; });
       res.on('end', () => {
         try {
-          const parsed = JSON.parse(data);
-          if (res.statusCode !== 200) {
-            return reject(new Error(parsed.message || 'Payment initialization failed'));
-          }
-          resolve(parsed);
+          resolve(JSON.parse(data));
         } catch (error) {
-          reject(new Error('Invalid response from payment provider'));
+          reject(new Error('Invalid response from Paystack'));
         }
       });
     });
@@ -59,13 +55,9 @@ exports.verifyPayment = async (reference) => {
       res.on('data', (chunk) => { data += chunk; });
       res.on('end', () => {
         try {
-          const parsed = JSON.parse(data);
-          if (res.statusCode !== 200) {
-            return reject(new Error(parsed.message || 'Payment verification failed'));
-          }
-          resolve(parsed);
+          resolve(JSON.parse(data));
         } catch (error) {
-          reject(new Error('Invalid response from payment provider'));
+          reject(new Error('Invalid response from Paystack'));
         }
       });
     });
