@@ -6,7 +6,6 @@ exports.initializePayment = async (email, amount, metadata) => {
     email,
     amount,
     metadata,
-    callback_url: `${process.env.FRONTEND_URL || 'https://anjolaestheticsng.com'}/checkout`
   });
 
   const options = {
