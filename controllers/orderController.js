@@ -146,27 +146,55 @@ exports.verifyPaymentHandler = async (req, res) => {
   }
 };
 
+// @desc    Paystack Webhook
+// @route   POST /api/orders/paystack-webhook
+// @access  Public
 exports.paystackWebhook = async (req, res) => {
   const crypto = require('crypto');
   
-  const hash = crypto.createHmac('sha512', process.env.PAYSTACK_SECRET_KEY)
+  // Verify webhook signature
+  const hash = crypto
+    .createHmac('sha512', process.env.PAYSTACK_SECRET_KEY)
     .update(JSON.stringify(req.body))
     .digest('hex');
     
   if (hash === req.headers['x-paystack-signature']) {
     const event = req.body;
     
+    // Handle successful charge
     if (event.event === 'charge.success') {
       const orderId = event.data.metadata.orderId;
       const reference = event.data.reference;
       
-      await Order.findByIdAndUpdate(orderId, {
-        paymentStatus: 'paid',
-        paymentReference: reference,
-        status: 'processing'
-      });
+      console.log('💰 Payment successful for order:', orderId);
       
-      // Send email here
+      // Update order
+      const order = await Order.findByIdAndUpdate(
+        orderId,
+        {
+          paymentStatus: 'paid',
+          paymentReference: reference,
+          status: 'processing'
+        },
+        { new: true }
+      );
+      
+      if (order) {
+        console.log('✅ Order updated:', order.orderNumber);
+        
+        // Send payment confirmation email
+        try {
+          await sendPaymentConfirmation({
+            customerInfo: order.customerInfo,
+            totalAmount: order.totalAmount,
+            orderNumber: order.orderNumber,
+            paymentReference: reference
+          });
+          console.log('📧 Payment confirmation email sent');
+        } catch (emailError) {
+          console.error('⚠️ Email error:', emailError);
+        }
+      }
     }
   }
   
