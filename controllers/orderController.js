@@ -82,6 +82,8 @@ exports.verifyPaymentHandler = async (req, res) => {
 
     const response = await verifyPayment(reference);
 
+    console.log('Paystack verify response:', response);
+
     if (response.status && response.data.status === 'success') {
       // Update order payment status
       const orderId = response.data.metadata.orderId;

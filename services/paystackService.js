@@ -50,7 +50,8 @@ exports.verifyPayment = async (reference) => {
     path: `/transaction/verify/${reference}`,
     method: 'GET',
     headers: {
-      Authorization: `Bearer ${process.env.PAYSTACK_SECRET_KEY}`
+      Authorization: `Bearer ${process.env.PAYSTACK_SECRET_KEY}`,
+      'Content-Type': 'application/json'
     }
   };
 
@@ -63,7 +64,17 @@ exports.verifyPayment = async (reference) => {
       });
 
       res.on('end', () => {
-        resolve(JSON.parse(data));
+        const parsed = JSON.parse(data);
+
+        // 🔥 CRITICAL: handle Paystack HTTP errors explicitly
+        if (res.statusCode !== 200) {
+          return reject({
+            statusCode: res.statusCode,
+            paystackResponse: parsed
+          });
+        }
+
+        resolve(parsed);
       });
     });
 
