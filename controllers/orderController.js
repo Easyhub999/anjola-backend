@@ -146,6 +146,33 @@ exports.verifyPaymentHandler = async (req, res) => {
   }
 };
 
+exports.paystackWebhook = async (req, res) => {
+  const crypto = require('crypto');
+  
+  const hash = crypto.createHmac('sha512', process.env.PAYSTACK_SECRET_KEY)
+    .update(JSON.stringify(req.body))
+    .digest('hex');
+    
+  if (hash === req.headers['x-paystack-signature']) {
+    const event = req.body;
+    
+    if (event.event === 'charge.success') {
+      const orderId = event.data.metadata.orderId;
+      const reference = event.data.reference;
+      
+      await Order.findByIdAndUpdate(orderId, {
+        paymentStatus: 'paid',
+        paymentReference: reference,
+        status: 'processing'
+      });
+      
+      // Send email here
+    }
+  }
+  
+  res.sendStatus(200);
+};
+
 // @desc    Get all orders (Admin)
 // @route   GET /api/orders
 // @access  Private/Admin

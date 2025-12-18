@@ -6,8 +6,6 @@ exports.initializePayment = async (email, amount, metadata) => {
     email,
     amount,
     metadata,
-    // ✅ Redirect back to checkout with success=true
-    callback_url: 'https://anjolaestheticsng.com/checkout?payment=success'
   });
 
   const options = {

@@ -14,6 +14,7 @@ const { protect, adminOnly } = require('../middleware/auth');
 router.post('/', createOrder);
 router.post('/initialize-payment', initializePaymentHandler);
 router.get('/verify-payment/:reference', verifyPaymentHandler);
+router.post('/paystack-webhook', require('../controllers/orderController').paystackWebhook);
 
 // Protected routes
 router.get('/my-orders', protect, getMyOrders);
