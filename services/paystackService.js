@@ -6,8 +6,8 @@ exports.initializePayment = async (email, amount, metadata) => {
     email,
     amount,
     metadata,
-    // ✅ This tells Paystack where to redirect after payment
-    callback_url: 'https://anjolaestheticsng.com/payment-success'
+    // ✅ Redirect back to checkout with success=true
+    callback_url: 'https://anjolaestheticsng.com/checkout?payment=success'
   });
 
   const options = {
