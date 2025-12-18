@@ -6,6 +6,8 @@ exports.initializePayment = async (email, amount, metadata) => {
     email,
     amount,
     metadata,
+    // ✅ This tells Paystack where to redirect after payment
+    callback_url: 'https://anjolaestheticsng.com/payment-success'
   });
 
   const options = {
@@ -30,6 +32,11 @@ exports.initializePayment = async (email, amount, metadata) => {
       res.on('end', () => {
         try {
           const parsed = JSON.parse(data);
+
+          console.log('Paystack initialization response:', {
+            statusCode: res.statusCode,
+            data: parsed
+          });
 
           if (res.statusCode !== 200) {
             console.error('Paystack initialization error:', parsed);
@@ -84,7 +91,6 @@ exports.verifyPayment = async (reference) => {
             data: parsed
           });
 
-          // Handle non-200 status codes
           if (res.statusCode !== 200) {
             console.error('Paystack verification failed:', {
               statusCode: res.statusCode,
@@ -94,7 +100,6 @@ exports.verifyPayment = async (reference) => {
             return reject(new Error(parsed.message || `Payment verification failed with status ${res.statusCode}`));
           }
 
-          // Even if status is 200, check if the response indicates success
           if (!parsed.status) {
             console.error('Paystack returned unsuccessful status:', parsed);
             return reject(new Error(parsed.message || 'Payment verification was not successful'));
