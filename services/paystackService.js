@@ -1,12 +1,15 @@
 const https = require('https');
 
-// Initialize Paystack payment (NO callback_url)
+// Initialize Paystack payment
 exports.initializePayment = async (email, amount, metadata) => {
   const params = JSON.stringify({
     email,
     amount,
-    metadata
-    // NO callback_url - users stay on Paystack success page
+    metadata,
+    // Redirect user back to your site after payment
+    callback_url: process.env.FRONTEND_URL 
+      ? `${process.env.FRONTEND_URL}/payment-success`
+      : 'https://anjolaaestheticsng.com/payment-success'
   });
 
   const options = {
