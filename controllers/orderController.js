@@ -30,13 +30,7 @@ exports.createOrder = async (req, res) => {
       paymentStatus: 'pending'
     });
 
-    // Send order confirmation email
-    await sendOrderConfirmation({
-      customerInfo,
-      items,
-      totalAmount,
-      orderNumber
-    });
+    // Email will be sent after payment confirmation
 
     res.status(201).json({
       success: true,
