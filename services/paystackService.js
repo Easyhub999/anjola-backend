@@ -8,8 +8,8 @@ exports.initializePayment = async (email, amount, metadata) => {
     metadata,
     // Redirect user back to your site after payment
     callback_url: process.env.FRONTEND_URL 
-      ? `${process.env.FRONTEND_URL}/checkout-complete`
-      : 'https://anjolaaestheticsng.com/checkout-complete'
+      ? `${process.env.FRONTEND_URL}/shop`
+      : 'https://anjolaaestheticsng.com/shop'
   });
 
   const options = {
