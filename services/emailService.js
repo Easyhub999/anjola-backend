@@ -8,11 +8,18 @@ exports.sendOrderConfirmation = async (orderData) => {
   try {
     const { customerInfo, items, totalAmount, orderNumber } = orderData;
 
-    // Create items list HTML
+    // Create items list HTML with size and color
     const itemsHTML = items.map(item => `
       <tr>
         <td style="padding: 12px; border-bottom: 1px solid #eee;">
           <strong>${item.name}</strong>
+          ${item.selectedSize || item.selectedColor ? `
+            <div style="font-size: 12px; color: #888; margin-top: 4px;">
+              ${item.selectedSize ? `Size: <strong>${item.selectedSize}</strong>` : ''}
+              ${item.selectedSize && item.selectedColor ? ' | ' : ''}
+              ${item.selectedColor ? `Color: <strong>${item.selectedColor}</strong>` : ''}
+            </div>
+          ` : ''}
         </td>
         <td style="padding: 12px; border-bottom: 1px solid #eee; text-align: center;">
           ${item.quantity}
@@ -151,11 +158,18 @@ exports.sendPaymentConfirmation = async (orderData) => {
   try {
     const { customerInfo, totalAmount, orderNumber, paymentReference, items } = orderData;
 
-    // Create items list HTML
+    // Create items list HTML with size and color
     const itemsHTML = items ? items.map(item => `
       <tr>
         <td style="padding: 12px; border-bottom: 1px solid #eee;">
           <strong>${item.name}</strong>
+          ${item.selectedSize || item.selectedColor ? `
+            <div style="font-size: 12px; color: #888; margin-top: 4px;">
+              ${item.selectedSize ? `Size: <strong>${item.selectedSize}</strong>` : ''}
+              ${item.selectedSize && item.selectedColor ? ' | ' : ''}
+              ${item.selectedColor ? `Color: <strong>${item.selectedColor}</strong>` : ''}
+            </div>
+          ` : ''}
         </td>
         <td style="padding: 12px; border-bottom: 1px solid #eee; text-align: center;">
           ${item.quantity}
