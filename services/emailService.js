@@ -135,9 +135,9 @@ exports.sendOrderConfirmation = async (orderData) => {
             </div>
             
             <div class="footer">
-              <p><strong>Anjola Aesthetics</strong></p>
-              <p>hello@anjolaaesthetics.com</p>
-              <p>&copy; ${new Date().getFullYear()} Anjola Aesthetics. All rights reserved.</p>
+              <p><strong>Anjola Aesthetics Ng</strong></p>
+              <p>hello@anjolaaestheticsng.com</p>
+              <p>&copy; ${new Date().getFullYear()} Anjola Aesthetics Ng. All rights reserved.</p>
             </div>
           </div>
         </body>
@@ -245,13 +245,13 @@ exports.sendPaymentConfirmation = async (orderData) => {
               <h3 style="color: #84fab0;">🚚 What's Next?</h3>
               <p>We're carefully packaging your items. You'll receive a shipping confirmation email with tracking information within 24-48 hours.</p>
               
-              <p style="margin-top: 30px;">Thank you for choosing <strong>Anjola Aesthetics</strong>! ✨</p>
+              <p style="margin-top: 30px;">Thank you for choosing <strong>Anjola Aesthetics Ng</strong>! ✨</p>
             </div>
             
             <div class="footer">
-              <p><strong>Anjola Aesthetics</strong></p>
-              <p>hello@anjolaaesthetics.com</p>
-              <p>&copy; ${new Date().getFullYear()} Anjola Aesthetics. All rights reserved.</p>
+              <p><strong>Anjola Aesthetics Ng</strong></p>
+              <p>hello@anjolaaestheticsng.com</p>
+              <p>&copy; ${new Date().getFullYear()} Anjola Aesthetics Ng. All rights reserved.</p>
             </div>
           </div>
         </body>
@@ -323,9 +323,9 @@ exports.sendShippedNotification = async (orderData) => {
             </div>
             
             <div class="footer">
-              <p><strong>Anjola Aesthetics</strong></p>
-              <p>hello@anjolaaesthetics.com</p>
-              <p>&copy; ${new Date().getFullYear()} Anjola Aesthetics. All rights reserved.</p>
+              <p><strong>Anjola Aesthetics Ng</strong></p>
+              <p>hello@anjolaaestheticsng.com</p>
+              <p>&copy; ${new Date().getFullYear()} Anjola Aesthetics Ng. All rights reserved.</p>
             </div>
           </div>
         </body>
@@ -377,7 +377,7 @@ exports.sendDeliveredNotification = async (orderData) => {
               
               <div class="celebration-box">
                 <h2 style="margin: 0 0 15px 0; color: #11998e;">✨ Enjoy Your Products! ✨</h2>
-                <p style="margin: 0; font-size: 16px;">We hope you love your new items from Anjola Aesthetics!</p>
+                <p style="margin: 0; font-size: 16px;">We hope you love your new items from Anjola Aesthetics Ng!</p>
               </div>
               
               <h3 style="color: #11998e;">💬 Share Your Experience</h3>
@@ -394,9 +394,9 @@ exports.sendDeliveredNotification = async (orderData) => {
             </div>
             
             <div class="footer">
-              <p><strong>Anjola Aesthetics</strong></p>
-              <p>hello@anjolaaesthetics.com</p>
-              <p>&copy; ${new Date().getFullYear()} Anjola Aesthetics. All rights reserved.</p>
+              <p><strong>Anjola Aesthetics Ng</strong></p>
+              <p>hello@anjolaaestheticsng.com</p>
+              <p>&copy; ${new Date().getFullYear()} Anjola Aesthetics Ng. All rights reserved.</p>
             </div>
           </div>
         </body>
@@ -455,13 +455,13 @@ exports.sendCancelledNotification = async (orderData) => {
               
               <p>If you have any questions about this cancellation, please don't hesitate to contact our customer support team. We're here to help!</p>
               
-              <p style="margin-top: 30px;">We hope to see you again soon at <strong>Anjola Aesthetics</strong>! 💕</p>
+              <p style="margin-top: 30px;">We hope to see you again soon at <strong>Anjola Aesthetics Ng</strong>! 💕</p>
             </div>
             
             <div class="footer">
-              <p><strong>Anjola Aesthetics</strong></p>
-              <p>hello@anjolaaesthetics.com</p>
-              <p>&copy; ${new Date().getFullYear()} Anjola Aesthetics. All rights reserved.</p>
+              <p><strong>Anjola Aesthetics Ng</strong></p>
+              <p>hello@anjolaaestheticsng.com</p>
+              <p>&copy; ${new Date().getFullYear()} Anjola Aesthetics Ng. All rights reserved.</p>
             </div>
           </div>
         </body>
