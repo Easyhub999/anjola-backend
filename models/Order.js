@@ -17,7 +17,9 @@ const orderSchema = new mongoose.Schema({
     phone: { type: String, required: true },
     address: { type: String, required: true },
     city: { type: String, required: true },
-    state: { type: String, required: true }
+    state: { type: String, required: true },
+    shippingMethod: { type: String },
+    shippingCost: { type: Number, default: 0 }
   },
   items: [{
     product: {
@@ -31,6 +33,14 @@ const orderSchema = new mongoose.Schema({
       type: Number,
       required: true,
       min: 1
+    },
+    selectedSize: {
+      type: String,
+      default: null
+    },
+    selectedColor: {
+      type: String,
+      default: null
     }
   }],
   totalAmount: {
