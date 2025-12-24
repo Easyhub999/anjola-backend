@@ -1,68 +1,109 @@
 const mongoose = require('mongoose');
 
-const orderSchema = new mongoose.Schema({
-  user: {
-    type: mongoose.Schema.Types.ObjectId,
-    ref: 'User',
-    required: false
+// ===============================
+// REVIEW SUB-SCHEMA
+// ===============================
+const reviewSchema = new mongoose.Schema({
+  name: { type: String, required: true },
+  rating: { type: Number, required: true, min: 1, max: 5 },
+  comment: { type: String, required: true },
+  date: { type: Date, default: Date.now }
+});
+
+// ===============================
+// PRICE VARIATION SUB-SCHEMA
+// ===============================
+const priceVariationSchema = new mongoose.Schema({
+  pieces: { type: Number, required: true, min: 1 },
+  price: { type: Number, required: true, min: 0 },
+  label: { type: String } // Optional: "Best Value", "Most Popular", etc.
+}, { _id: false });
+
+// ===============================
+// MAIN PRODUCT SCHEMA
+// ===============================
+const productSchema = new mongoose.Schema({
+  name: {
+    type: String,
+    required: [true, 'Product name is required'],
+    trim: true
   },
-  orderNumber: {
+  description: {
+    type: String,
+    required: [true, 'Product description is required']
+  },
+  price: {
+    type: Number,
+    required: [true, 'Product price is required'],
+    min: 0
+  },
+  // 🔥 DYNAMIC CATEGORY — NO ENUM ANYMORE
+  category: {
     type: String,
     required: true,
-    unique: true
+    trim: true,
   },
-  customerInfo: {
-    fullName: { type: String, required: true },
-    email: { type: String, required: true },
-    phone: { type: String, required: true },
-    address: { type: String, required: true },
-    city: { type: String, required: true },
-    state: { type: String, required: true },
-    shippingMethod: { type: String },
-    shippingCost: { type: Number, default: 0 }
+  // ============================
+  // MULTIPLE IMAGES
+  // ============================
+  images: {
+    type: [String],
+    default: []
   },
-  items: [{
-    product: {
-      type: mongoose.Schema.Types.ObjectId,
-      ref: 'Product',
-      required: true
-    },
-    name: String,
-    price: Number,
-    quantity: {
-      type: Number,
-      required: true,
-      min: 1
-    },
-    selectedSize: {
-      type: String,
-      default: null
-    },
-    selectedColor: {
-      type: String,
-      default: null
-    }
-  }],
-  totalAmount: {
+  // ============================
+  // PRODUCT OPTIONS
+  // ============================
+  sizes: {
+    type: [String],
+    default: []
+  },
+  colors: {
+    type: [String],
+    default: []
+  },
+  // ============================
+  // 🔥 PRICE VARIATIONS BY PIECES
+  // ============================
+  priceVariations: {
+    type: [priceVariationSchema],
+    default: []
+  },
+  // ============================
+  // REVIEWS
+  // ============================
+  reviews: {
+    type: [reviewSchema],
+    default: []
+  },
+  featured: {
+    type: Boolean,
+    default: false
+  },
+  // ============================
+  // INVENTORY — NEW
+  // ============================
+  quantity: {
     type: Number,
-    required: true
+    default: 0
   },
-  status: {
-    type: String,
-    enum: ['pending', 'processing', 'shipped', 'delivered', 'cancelled'],
-    default: 'pending'
+  lowStockWarningAt: {
+    type: Number,
+    default: 0
   },
-  paymentStatus: {
-    type: String,
-    enum: ['pending', 'paid', 'failed'],
-    default: 'pending'
+  inStock: {
+    type: Boolean,
+    default: true
   },
-  paymentMethod: {
-    type: String,
-    default: 'paystack'
+  autoHideWhenZero: {
+    type: Boolean,
+    default: true
   },
-  paymentReference: {
-    type: String
+  // ============================
+  // VISIBILITY
+  // ============================
+  visible: {
+    type: Boolean,
+    default: true
   },
   createdAt: {
     type: Date,
@@ -70,4 +111,4 @@ const orderSchema = new mongoose.Schema({
   }
 });
 
-module.exports = mongoose.model('Order', orderSchema);
+module.exports = mongoose.model('Product', productSchema);
