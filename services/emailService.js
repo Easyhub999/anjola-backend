@@ -8,11 +8,21 @@ exports.sendOrderConfirmation = async (orderData) => {
   try {
     const { customerInfo, items, totalAmount, orderNumber } = orderData;
 
-    // Create items list HTML with size and color
-    const itemsHTML = items.map(item => `
+    // Create items list HTML with size, color, and price variations
+    const itemsHTML = items.map(item => {
+      // Check if this item has price variation (multiple pieces)
+      const hasPieces = item.selectedPieces && item.selectedPieces > 1;
+      const pricePerPiece = item.pricePerPiece || item.price;
+      
+      return `
       <tr>
         <td style="padding: 12px; border-bottom: 1px solid #eee;">
           <strong>${item.name}</strong>
+          ${hasPieces ? `
+            <div style="font-size: 12px; color: #059669; margin-top: 4px; font-weight: 600;">
+              📦 ${item.selectedPieces} pieces (₦${pricePerPiece.toLocaleString()}/pc)
+            </div>
+          ` : ''}
           ${item.selectedSize || item.selectedColor ? `
             <div style="font-size: 12px; color: #888; margin-top: 4px;">
               ${item.selectedSize ? `Size: <strong>${item.selectedSize}</strong>` : ''}
@@ -31,7 +41,7 @@ exports.sendOrderConfirmation = async (orderData) => {
           <strong>₦${(item.price * item.quantity).toLocaleString()}</strong>
         </td>
       </tr>
-    `).join('');
+    `}).join('');
 
     const data = await resend.emails.send({
       from: process.env.EMAIL_FROM,
@@ -158,11 +168,20 @@ exports.sendPaymentConfirmation = async (orderData) => {
   try {
     const { customerInfo, totalAmount, orderNumber, paymentReference, items } = orderData;
 
-    // Create items list HTML with size and color
-    const itemsHTML = items ? items.map(item => `
+    // Create items list HTML with size, color, and price variations
+    const itemsHTML = items ? items.map(item => {
+      const hasPieces = item.selectedPieces && item.selectedPieces > 1;
+      const pricePerPiece = item.pricePerPiece || item.price;
+      
+      return `
       <tr>
         <td style="padding: 12px; border-bottom: 1px solid #eee;">
           <strong>${item.name}</strong>
+          ${hasPieces ? `
+            <div style="font-size: 12px; color: #059669; margin-top: 4px; font-weight: 600;">
+              📦 ${item.selectedPieces} pieces (₦${pricePerPiece.toLocaleString()}/pc)
+            </div>
+          ` : ''}
           ${item.selectedSize || item.selectedColor ? `
             <div style="font-size: 12px; color: #888; margin-top: 4px;">
               ${item.selectedSize ? `Size: <strong>${item.selectedSize}</strong>` : ''}
@@ -178,7 +197,7 @@ exports.sendPaymentConfirmation = async (orderData) => {
           <strong>₦${(item.price * item.quantity).toLocaleString()}</strong>
         </td>
       </tr>
-    `).join('') : '';
+    `}).join('') : '';
 
     const data = await resend.emails.send({
       from: process.env.EMAIL_FROM,
