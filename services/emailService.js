@@ -3,33 +3,40 @@ const { Resend } = require('resend');
 // Initialize Resend with API key
 const resend = new Resend(process.env.RESEND_API_KEY);
 
-// Send order confirmation email
-exports.sendOrderConfirmation = async (orderData) => {
-  try {
-    const { customerInfo, items, totalAmount, orderNumber } = orderData;
-
-    // Create items list HTML with size, color, and price variations
-    const itemsHTML = items.map(item => {
-      // Check if this item has price variation (multiple pieces)
-      const hasPieces = item.selectedPieces && item.selectedPieces > 1;
-      const pricePerPiece = item.pricePerPiece || item.price;
-      
-      return `
+// Helper function to generate items HTML with images
+const generateItemsHTML = (items, showImages = true) => {
+  return items.map(item => {
+    const hasPieces = item.selectedPieces && item.selectedPieces > 1;
+    const pricePerPiece = item.pricePerPiece || item.price;
+    const imageUrl = item.image || (item.images && item.images[0]) || '';
+    
+    return `
       <tr>
         <td style="padding: 12px; border-bottom: 1px solid #eee;">
-          <strong>${item.name}</strong>
-          ${hasPieces ? `
-            <div style="font-size: 12px; color: #059669; margin-top: 4px; font-weight: 600;">
-              📦 ${item.selectedPieces} pieces (₦${pricePerPiece.toLocaleString()}/pc)
+          <div style="display: flex; align-items: center; gap: 12px;">
+            ${showImages && imageUrl ? `
+              <img 
+                src="${imageUrl}" 
+                alt="${item.name}" 
+                style="width: 60px; height: 60px; object-fit: cover; border-radius: 8px; border: 1px solid #eee;"
+              />
+            ` : ''}
+            <div>
+              <strong style="display: block; margin-bottom: 4px;">${item.name}</strong>
+              ${hasPieces ? `
+                <div style="font-size: 12px; color: #059669; font-weight: 600;">
+                  📦 ${item.selectedPieces} pieces (₦${pricePerPiece.toLocaleString()}/pc)
+                </div>
+              ` : ''}
+              ${item.selectedSize || item.selectedColor ? `
+                <div style="font-size: 12px; color: #888; margin-top: 4px;">
+                  ${item.selectedSize ? `Size: <strong>${item.selectedSize}</strong>` : ''}
+                  ${item.selectedSize && item.selectedColor ? ' | ' : ''}
+                  ${item.selectedColor ? `Color: <strong>${item.selectedColor}</strong>` : ''}
+                </div>
+              ` : ''}
             </div>
-          ` : ''}
-          ${item.selectedSize || item.selectedColor ? `
-            <div style="font-size: 12px; color: #888; margin-top: 4px;">
-              ${item.selectedSize ? `Size: <strong>${item.selectedSize}</strong>` : ''}
-              ${item.selectedSize && item.selectedColor ? ' | ' : ''}
-              ${item.selectedColor ? `Color: <strong>${item.selectedColor}</strong>` : ''}
-            </div>
-          ` : ''}
+          </div>
         </td>
         <td style="padding: 12px; border-bottom: 1px solid #eee; text-align: center;">
           ${item.quantity}
@@ -41,7 +48,62 @@ exports.sendOrderConfirmation = async (orderData) => {
           <strong>₦${(item.price * item.quantity).toLocaleString()}</strong>
         </td>
       </tr>
-    `}).join('');
+    `;
+  }).join('');
+};
+
+// Helper function for compact items (3 columns)
+const generateCompactItemsHTML = (items) => {
+  return items.map(item => {
+    const hasPieces = item.selectedPieces && item.selectedPieces > 1;
+    const pricePerPiece = item.pricePerPiece || item.price;
+    const imageUrl = item.image || (item.images && item.images[0]) || '';
+    
+    return `
+      <tr>
+        <td style="padding: 12px; border-bottom: 1px solid #eee;">
+          <div style="display: flex; align-items: center; gap: 12px;">
+            ${imageUrl ? `
+              <img 
+                src="${imageUrl}" 
+                alt="${item.name}" 
+                style="width: 50px; height: 50px; object-fit: cover; border-radius: 8px; border: 1px solid #eee;"
+              />
+            ` : ''}
+            <div>
+              <strong style="display: block; margin-bottom: 4px;">${item.name}</strong>
+              ${hasPieces ? `
+                <div style="font-size: 11px; color: #059669; font-weight: 600;">
+                  📦 ${item.selectedPieces} pcs (₦${pricePerPiece.toLocaleString()}/pc)
+                </div>
+              ` : ''}
+              ${item.selectedSize || item.selectedColor ? `
+                <div style="font-size: 11px; color: #888; margin-top: 2px;">
+                  ${item.selectedSize ? `Size: ${item.selectedSize}` : ''}
+                  ${item.selectedSize && item.selectedColor ? ' | ' : ''}
+                  ${item.selectedColor ? `Color: ${item.selectedColor}` : ''}
+                </div>
+              ` : ''}
+            </div>
+          </div>
+        </td>
+        <td style="padding: 12px; border-bottom: 1px solid #eee; text-align: center;">
+          ${item.quantity}
+        </td>
+        <td style="padding: 12px; border-bottom: 1px solid #eee; text-align: right;">
+          <strong>₦${(item.price * item.quantity).toLocaleString()}</strong>
+        </td>
+      </tr>
+    `;
+  }).join('');
+};
+
+// Send order confirmation email
+exports.sendOrderConfirmation = async (orderData) => {
+  try {
+    const { customerInfo, items, totalAmount, orderNumber } = orderData;
+
+    const itemsHTML = generateItemsHTML(items);
 
     const data = await resend.emails.send({
       from: process.env.EMAIL_FROM,
@@ -139,6 +201,7 @@ exports.sendOrderConfirmation = async (orderData) => {
                 <p>${customerInfo.address}</p>
                 <p>${customerInfo.city}, ${customerInfo.state}</p>
                 <p>📱 ${customerInfo.phone}</p>
+                ${customerInfo.shippingMethod ? `<p style="margin-top: 10px; color: #f5576c;"><strong>Shipping:</strong> ${customerInfo.shippingMethod}</p>` : ''}
               </div>
               
               <p><strong>What's Next?</strong> Complete your payment and we'll send you a confirmation email with tracking details.</p>
@@ -168,36 +231,7 @@ exports.sendPaymentConfirmation = async (orderData) => {
   try {
     const { customerInfo, totalAmount, orderNumber, paymentReference, items } = orderData;
 
-    // Create items list HTML with size, color, and price variations
-    const itemsHTML = items ? items.map(item => {
-      const hasPieces = item.selectedPieces && item.selectedPieces > 1;
-      const pricePerPiece = item.pricePerPiece || item.price;
-      
-      return `
-      <tr>
-        <td style="padding: 12px; border-bottom: 1px solid #eee;">
-          <strong>${item.name}</strong>
-          ${hasPieces ? `
-            <div style="font-size: 12px; color: #059669; margin-top: 4px; font-weight: 600;">
-              📦 ${item.selectedPieces} pieces (₦${pricePerPiece.toLocaleString()}/pc)
-            </div>
-          ` : ''}
-          ${item.selectedSize || item.selectedColor ? `
-            <div style="font-size: 12px; color: #888; margin-top: 4px;">
-              ${item.selectedSize ? `Size: <strong>${item.selectedSize}</strong>` : ''}
-              ${item.selectedSize && item.selectedColor ? ' | ' : ''}
-              ${item.selectedColor ? `Color: <strong>${item.selectedColor}</strong>` : ''}
-            </div>
-          ` : ''}
-        </td>
-        <td style="padding: 12px; border-bottom: 1px solid #eee; text-align: center;">
-          ${item.quantity}
-        </td>
-        <td style="padding: 12px; border-bottom: 1px solid #eee; text-align: right;">
-          <strong>₦${(item.price * item.quantity).toLocaleString()}</strong>
-        </td>
-      </tr>
-    `}).join('') : '';
+    const itemsHTML = items ? generateCompactItemsHTML(items) : '';
 
     const data = await resend.emails.send({
       from: process.env.EMAIL_FROM,
@@ -245,7 +279,7 @@ exports.sendPaymentConfirmation = async (orderData) => {
                 <p><strong>Status:</strong> <span style="color: #28a745;">✓ Paid & Processing</span></p>
               </div>
               
-              ${items ? `
+              ${items && items.length > 0 ? `
                 <h3 style="color: #84fab0;">📦 Your Items</h3>
                 <table>
                   <thead>
@@ -289,7 +323,9 @@ exports.sendPaymentConfirmation = async (orderData) => {
 // Send shipped notification
 exports.sendShippedNotification = async (orderData) => {
   try {
-    const { customerInfo, orderNumber, trackingNumber } = orderData;
+    const { customerInfo, orderNumber, trackingNumber, items, totalAmount } = orderData;
+
+    const itemsHTML = items && items.length > 0 ? generateCompactItemsHTML(items) : '';
 
     const data = await resend.emails.send({
       from: process.env.EMAIL_FROM,
@@ -308,6 +344,9 @@ exports.sendShippedNotification = async (orderData) => {
             .tracking-box { background: #f8f9fa; padding: 30px; text-align: center; border-radius: 12px; margin: 30px 0; border: 2px dashed #667eea; }
             .tracking-number { font-size: 24px; font-weight: 700; color: #667eea; letter-spacing: 2px; }
             .info-box { background: #e3f2fd; padding: 20px; margin: 20px 0; border-radius: 8px; border-left: 4px solid #2196f3; }
+            table { width: 100%; border-collapse: collapse; margin: 20px 0; }
+            th { background: #f8f9fa; padding: 12px; text-align: left; }
+            td { padding: 12px; border-bottom: 1px solid #eee; }
             .footer { background: #f8f9fa; padding: 30px; text-align: center; font-size: 13px; color: #666; }
           </style>
         </head>
@@ -316,11 +355,12 @@ exports.sendShippedNotification = async (orderData) => {
             <div class="header">
               <div class="icon">🚚</div>
               <h1>Your Order Is On Its Way!</h1>
+              <p>Order #${orderNumber}</p>
             </div>
             
             <div class="content">
               <p>Dear <strong>${customerInfo.fullName}</strong>,</p>
-              <p>Exciting news! Your order <strong>#${orderNumber}</strong> has been shipped and is on its way to you!</p>
+              <p>Exciting news! Your order has been shipped and is on its way to you!</p>
               
               ${trackingNumber ? `
                 <div class="tracking-box">
@@ -330,9 +370,31 @@ exports.sendShippedNotification = async (orderData) => {
                 </div>
               ` : ''}
               
+              ${items && items.length > 0 ? `
+                <h3 style="color: #667eea;">📦 Items Being Shipped</h3>
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Product</th>
+                      <th style="text-align: center;">Qty</th>
+                      <th style="text-align: right;">Subtotal</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    ${itemsHTML}
+                  </tbody>
+                </table>
+                ${totalAmount ? `
+                  <p style="text-align: right; font-size: 18px; font-weight: bold; color: #667eea;">
+                    Total: ₦${totalAmount.toLocaleString()}
+                  </p>
+                ` : ''}
+              ` : ''}
+              
               <div class="info-box">
                 <p style="margin: 0;"><strong>📦 Delivery Address:</strong></p>
                 <p style="margin: 10px 0 0 0;">${customerInfo.address}, ${customerInfo.city}, ${customerInfo.state}</p>
+                <p style="margin: 5px 0 0 0;">📱 ${customerInfo.phone}</p>
               </div>
               
               <h3 style="color: #667eea;">⏱️ Expected Delivery</h3>
@@ -360,10 +422,12 @@ exports.sendShippedNotification = async (orderData) => {
   }
 };
 
-// Send delivered notification
+// Send delivered notification - NOW WITH FULL ORDER DETAILS
 exports.sendDeliveredNotification = async (orderData) => {
   try {
-    const { customerInfo, orderNumber } = orderData;
+    const { customerInfo, orderNumber, items, totalAmount } = orderData;
+
+    const itemsHTML = items && items.length > 0 ? generateCompactItemsHTML(items) : '';
 
     const data = await resend.emails.send({
       from: process.env.EMAIL_FROM,
@@ -380,6 +444,11 @@ exports.sendDeliveredNotification = async (orderData) => {
             .icon { font-size: 80px; margin-bottom: 20px; }
             .content { padding: 40px 30px; }
             .celebration-box { background: linear-gradient(135deg, #fff9e6 0%, #e8f5e9 100%); padding: 30px; text-align: center; border-radius: 12px; margin: 30px 0; }
+            table { width: 100%; border-collapse: collapse; margin: 20px 0; }
+            th { background: #f8f9fa; padding: 12px; text-align: left; }
+            td { padding: 12px; border-bottom: 1px solid #eee; }
+            .total-box { background: #e8f5e9; padding: 15px 20px; border-radius: 8px; text-align: right; margin-top: 15px; }
+            .address-box { background: #f8f9fa; padding: 15px 20px; border-radius: 8px; margin: 20px 0; border-left: 4px solid #11998e; }
             .footer { background: #f8f9fa; padding: 30px; text-align: center; font-size: 13px; color: #666; }
           </style>
         </head>
@@ -388,15 +457,46 @@ exports.sendDeliveredNotification = async (orderData) => {
             <div class="header">
               <div class="icon">🎉</div>
               <h1>Your Order Has Been Delivered!</h1>
+              <p>Order #${orderNumber}</p>
             </div>
             
             <div class="content">
               <p>Dear <strong>${customerInfo.fullName}</strong>,</p>
-              <p>Great news! Your order <strong>#${orderNumber}</strong> has been successfully delivered!</p>
+              <p>Great news! Your order has been successfully delivered!</p>
               
               <div class="celebration-box">
                 <h2 style="margin: 0 0 15px 0; color: #11998e;">✨ Enjoy Your Products! ✨</h2>
                 <p style="margin: 0; font-size: 16px;">We hope you love your new items from Anjola Aesthetics Ng!</p>
+              </div>
+              
+              ${items && items.length > 0 ? `
+                <h3 style="color: #11998e;">📦 What Was Delivered</h3>
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Product</th>
+                      <th style="text-align: center;">Qty</th>
+                      <th style="text-align: right;">Subtotal</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    ${itemsHTML}
+                  </tbody>
+                </table>
+                ${totalAmount ? `
+                  <div class="total-box">
+                    <span style="font-size: 18px; font-weight: bold; color: #11998e;">
+                      Total Paid: ₦${totalAmount.toLocaleString()}
+                    </span>
+                  </div>
+                ` : ''}
+              ` : ''}
+              
+              <div class="address-box">
+                <p style="margin: 0;"><strong>📍 Delivered To:</strong></p>
+                <p style="margin: 8px 0 0 0;">${customerInfo.fullName}</p>
+                <p style="margin: 4px 0 0 0;">${customerInfo.address}</p>
+                <p style="margin: 4px 0 0 0;">${customerInfo.city}, ${customerInfo.state}</p>
               </div>
               
               <h3 style="color: #11998e;">💬 Share Your Experience</h3>
@@ -431,10 +531,12 @@ exports.sendDeliveredNotification = async (orderData) => {
   }
 };
 
-// Send cancelled notification
+// Send cancelled notification - NOW WITH FULL ORDER DETAILS
 exports.sendCancelledNotification = async (orderData) => {
   try {
-    const { customerInfo, orderNumber, refundInfo } = orderData;
+    const { customerInfo, orderNumber, refundInfo, items, totalAmount } = orderData;
+
+    const itemsHTML = items && items.length > 0 ? generateCompactItemsHTML(items) : '';
 
     const data = await resend.emails.send({
       from: process.env.EMAIL_FROM,
@@ -451,6 +553,9 @@ exports.sendCancelledNotification = async (orderData) => {
             .icon { font-size: 80px; margin-bottom: 20px; }
             .content { padding: 40px 30px; }
             .info-box { background: #fff3cd; padding: 20px; margin: 20px 0; border-radius: 8px; border-left: 4px solid #ffc107; }
+            table { width: 100%; border-collapse: collapse; margin: 20px 0; }
+            th { background: #f8f9fa; padding: 12px; text-align: left; }
+            td { padding: 12px; border-bottom: 1px solid #eee; }
             .footer { background: #f8f9fa; padding: 30px; text-align: center; font-size: 13px; color: #666; }
           </style>
         </head>
@@ -459,17 +564,39 @@ exports.sendCancelledNotification = async (orderData) => {
             <div class="header">
               <div class="icon">😔</div>
               <h1>Order Cancelled</h1>
+              <p>Order #${orderNumber}</p>
             </div>
             
             <div class="content">
               <p>Dear <strong>${customerInfo.fullName}</strong>,</p>
-              <p>We're sorry to inform you that your order <strong>#${orderNumber}</strong> has been cancelled.</p>
+              <p>We're sorry to inform you that your order has been cancelled.</p>
               
               ${refundInfo ? `
                 <div class="info-box">
                   <p style="margin: 0;"><strong>💰 Refund Information:</strong></p>
                   <p style="margin: 10px 0 0 0;">${refundInfo}</p>
                 </div>
+              ` : ''}
+              
+              ${items && items.length > 0 ? `
+                <h3 style="color: #eb3349;">📦 Cancelled Items</h3>
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Product</th>
+                      <th style="text-align: center;">Qty</th>
+                      <th style="text-align: right;">Subtotal</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    ${itemsHTML}
+                  </tbody>
+                </table>
+                ${totalAmount ? `
+                  <p style="text-align: right; font-size: 16px; color: #666;">
+                    Order Total: <strong>₦${totalAmount.toLocaleString()}</strong>
+                  </p>
+                ` : ''}
               ` : ''}
               
               <p>If you have any questions about this cancellation, please don't hesitate to contact our customer support team. We're here to help!</p>
