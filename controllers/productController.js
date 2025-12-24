@@ -46,6 +46,9 @@ exports.getProduct = async (req, res) => {
 // =====================================================
 // CREATE PRODUCT (Admin)
 // =====================================================
+// =====================================================
+// CREATE PRODUCT (Admin)
+// =====================================================
 exports.createProduct = async (req, res) => {
   try {
     const {
@@ -56,6 +59,7 @@ exports.createProduct = async (req, res) => {
       images,
       sizes,
       colors,
+      priceVariations,  // 🔥 ADD THIS
       featured,
       quantity,
       lowStockWarningAt,
@@ -78,9 +82,10 @@ exports.createProduct = async (req, res) => {
       images,
       sizes: sizes || [],
       colors: colors || [],
+      priceVariations: priceVariations || [],  // 🔥 ADD THIS
       featured: !!featured,
 
-      // NEW INVENTORY FIELDS
+      // INVENTORY FIELDS
       quantity: quantity ?? 0,
       lowStockWarningAt: lowStockWarningAt ?? 0,
       inStock: inStock ?? (quantity > 0),
