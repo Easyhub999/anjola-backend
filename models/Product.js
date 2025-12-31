@@ -1,8 +1,5 @@
 const mongoose = require('mongoose');
 
-// ===============================
-// REVIEW SUB-SCHEMA
-// ===============================
 const reviewSchema = new mongoose.Schema({
   name: { type: String, required: true },
   rating: { type: Number, required: true, min: 1, max: 5 },
@@ -10,92 +7,66 @@ const reviewSchema = new mongoose.Schema({
   date: { type: Date, default: Date.now }
 });
 
-// ===============================
-// PRICE VARIATION SUB-SCHEMA
-// ===============================
 const priceVariationSchema = new mongoose.Schema({
   pieces: { type: Number, required: true, min: 1 },
   price: { type: Number, required: true, min: 0 },
-  label: { type: String } // Optional: "Best Value", "Most Popular", etc.
+  label: { type: String }
 }, { _id: false });
 
-// ===============================
-// 🔥 COLOR WITH QUANTITY SUB-SCHEMA
-// ===============================
+// 🔥 Color schema - but we'll use Mixed type for backward compatibility
 const colorSchema = new mongoose.Schema({
   name: { type: String, required: true },
-  quantity: { type: Number, default: 0, min: 0 }
+  quantity: { type: Number, default: 0 }
 }, { _id: false });
 
-// ===============================
-// MAIN PRODUCT SCHEMA
-// ===============================
 const productSchema = new mongoose.Schema({
   name: {
     type: String,
     required: [true, 'Product name is required'],
     trim: true
   },
-  description: {
-    type: String,
-    required: [true, 'Product description is required']
-  },
   price: {
     type: Number,
-    required: [true, 'Product price is required'],
+    required: [true, 'Price is required'],
     min: 0
   },
-  // 🔥 DYNAMIC CATEGORY — NO ENUM ANYMORE
+  description: {
+    type: String,
+    required: [true, 'Description is required']
+  },
   category: {
     type: String,
-    required: true,
-    trim: true,
+    required: [true, 'Category is required']
   },
-  // ============================
-  // MULTIPLE IMAGES
-  // ============================
-  images: {
-    type: [String],
-    default: []
+  searchCategories: [{
+    type: String,
+    lowercase: true,
+    trim: true
+  }],
+  images: [{
+    type: String
+  }],
+  image: {
+    type: String
   },
-  // ============================
-  // PRODUCT OPTIONS
-  // ============================
-  sizes: {
-    type: [String],
-    default: []
-  },
-  // ============================
-  // 🔥 COLORS WITH INDIVIDUAL QUANTITY
-  // ============================
+  sizes: [{
+    type: String
+  }],
+  // 🔥 MIXED TYPE - Accepts both old ["string"] and new [{name, quantity}] formats
   colors: {
-    type: [colorSchema],
+    type: mongoose.Schema.Types.Mixed,
     default: []
   },
-  // ============================
-  // 🔥 PRICE VARIATIONS BY PIECES
-  // ============================
-  priceVariations: {
-    type: [priceVariationSchema],
-    default: []
-  },
-  // ============================
-  // REVIEWS
-  // ============================
-  reviews: {
-    type: [reviewSchema],
-    default: []
-  },
+  priceVariations: [priceVariationSchema],
+  reviews: [reviewSchema],
   featured: {
     type: Boolean,
     default: false
   },
-  // ============================
-  // INVENTORY — TOTAL (sum of all color quantities or manual)
-  // ============================
   quantity: {
     type: Number,
-    default: 0
+    default: 0,
+    min: 0
   },
   lowStockWarningAt: {
     type: Number,
@@ -109,39 +80,24 @@ const productSchema = new mongoose.Schema({
     type: Boolean,
     default: true
   },
-  // ============================
-  // VISIBILITY
-  // ============================
   visible: {
     type: Boolean,
     default: true
   },
-  // ============================
-  // 🔥 PRODUCT TAG (Best Seller, Hot, etc.)
-  // ============================
   tag: {
     type: String,
-    enum: ['', 'best-seller', 'hot', 'new', 'recommended', 'limited', 'trending', 'sale', 'popular'],
+    enum: ['', 'best-seller', 'hot', 'new', 'recommended', 'trending', 'popular', 'limited', 'sale'],
     default: ''
   },
-  // ============================
-  // DISPLAY ORDER (for sorting)
-  // ============================
   displayOrder: {
     type: Number,
-    default: 99999
-  },
-  // ============================
-  // SEARCH CATEGORIES (Hidden but searchable)
-  // ============================
-  searchCategories: {
-    type: [String],
-    default: []
-  },
-  createdAt: {
-    type: Date,
-    default: Date.now
+    default: 0
   }
+}, {
+  timestamps: true
 });
+
+// Index for search
+productSchema.index({ name: 'text', description: 'text', category: 'text' });
 
 module.exports = mongoose.model('Product', productSchema);
