@@ -20,6 +20,14 @@ const priceVariationSchema = new mongoose.Schema({
 }, { _id: false });
 
 // ===============================
+// 🔥 COLOR WITH QUANTITY SUB-SCHEMA
+// ===============================
+const colorSchema = new mongoose.Schema({
+  name: { type: String, required: true },
+  quantity: { type: Number, default: 0, min: 0 }
+}, { _id: false });
+
+// ===============================
 // MAIN PRODUCT SCHEMA
 // ===============================
 const productSchema = new mongoose.Schema({
@@ -57,8 +65,11 @@ const productSchema = new mongoose.Schema({
     type: [String],
     default: []
   },
+  // ============================
+  // 🔥 COLORS WITH INDIVIDUAL QUANTITY
+  // ============================
   colors: {
-    type: [String],
+    type: [colorSchema],
     default: []
   },
   // ============================
@@ -80,7 +91,7 @@ const productSchema = new mongoose.Schema({
     default: false
   },
   // ============================
-  // INVENTORY — NEW
+  // INVENTORY — TOTAL (sum of all color quantities or manual)
   // ============================
   quantity: {
     type: Number,
@@ -105,32 +116,28 @@ const productSchema = new mongoose.Schema({
     type: Boolean,
     default: true
   },
-
   // ============================
- // 🔥 PRODUCT TAG (Best Seller, Hot, etc.)
- // ============================
- tag: {
-   type: String,
-   enum: ['', 'best-seller', 'hot', 'new', 'recommended', 'limited', 'trending', 'sale', 'popular'],
-   default: ''
- },
-  
+  // 🔥 PRODUCT TAG (Best Seller, Hot, etc.)
   // ============================
- // DISPLAY ORDER (for sorting)
- // ============================
- displayOrder: {
-   type: Number,
-   default: 99999
- },
-
+  tag: {
+    type: String,
+    enum: ['', 'best-seller', 'hot', 'new', 'recommended', 'limited', 'trending', 'sale', 'popular'],
+    default: ''
+  },
   // ============================
- // SEARCH CATEGORIES (Hidden but searchable)
- // ============================
- searchCategories: {
-   type: [String],
-   default: []
- },
-
+  // DISPLAY ORDER (for sorting)
+  // ============================
+  displayOrder: {
+    type: Number,
+    default: 99999
+  },
+  // ============================
+  // SEARCH CATEGORIES (Hidden but searchable)
+  // ============================
+  searchCategories: {
+    type: [String],
+    default: []
+  },
   createdAt: {
     type: Date,
     default: Date.now
