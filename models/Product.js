@@ -114,6 +114,14 @@ const productSchema = new mongoose.Schema({
    enum: ['', 'best-seller', 'hot', 'new', 'recommended', 'limited', 'trending', 'sale', 'popular'],
    default: ''
  },
+  
+  // ============================
+ // DISPLAY ORDER (for sorting)
+ // ============================
+ displayOrder: {
+   type: Number,
+   default: 99999
+ },
 
   createdAt: {
     type: Date,
