@@ -1,4 +1,5 @@
 const Order = require('../models/Order');
+const Product = require('../models/Product');
 const { initializePayment, verifyPayment } = require('../services/paystackService');
 const { 
   sendOrderConfirmation, 
@@ -8,6 +9,65 @@ const {
   sendCancelledNotification
 } = require('../services/emailService');
 const crypto = require('crypto');
+
+// 🔥 HELPER: Deduct stock from products after successful payment
+const deductStockFromOrder = async (orderItems) => {
+  console.log('📦 Deducting stock for order items...');
+  
+  for (const item of orderItems) {
+    try {
+      const product = await Product.findById(item.product);
+      if (!product) {
+        console.warn(`⚠️ Product not found: ${item.product}`);
+        continue;
+      }
+
+      const qtyToDeduct = item.quantity || 1;
+
+      // 🔥 Check if product has color-based inventory
+      if (product.colors && product.colors.length > 0 && item.selectedColor) {
+        // Find the specific color
+        const colorIndex = product.colors.findIndex(c => 
+          c.name && c.name.toLowerCase() === item.selectedColor.toLowerCase()
+        );
+
+        if (colorIndex !== -1) {
+          // Deduct from specific color
+          const currentColorQty = product.colors[colorIndex].quantity || 0;
+          product.colors[colorIndex].quantity = Math.max(0, currentColorQty - qtyToDeduct);
+          
+          console.log(`✅ Deducted ${qtyToDeduct} from ${product.name} (${item.selectedColor}): ${currentColorQty} → ${product.colors[colorIndex].quantity}`);
+          
+          // Recalculate total product quantity from all colors
+          product.quantity = product.colors.reduce((sum, c) => sum + (c.quantity || 0), 0);
+        } else {
+          // Color not found, deduct from total quantity
+          console.warn(`⚠️ Color "${item.selectedColor}" not found in ${product.name}, deducting from total`);
+          product.quantity = Math.max(0, (product.quantity || 0) - qtyToDeduct);
+        }
+      } else {
+        // No color-based inventory, deduct from total quantity
+        product.quantity = Math.max(0, (product.quantity || 0) - qtyToDeduct);
+        console.log(`✅ Deducted ${qtyToDeduct} from ${product.name}: now ${product.quantity}`);
+      }
+
+      // Update inStock status
+      product.inStock = product.quantity > 0;
+
+      // 🔥 Auto-hide if enabled and quantity is 0
+      if (product.autoHideWhenZero && product.quantity <= 0) {
+        product.visible = false;
+        console.log(`👁️ Auto-hiding ${product.name} (out of stock)`);
+      }
+
+      await product.save();
+    } catch (err) {
+      console.error(`❌ Error deducting stock for product ${item.product}:`, err);
+    }
+  }
+  
+  console.log('✅ Stock deduction complete');
+};
 
 // @desc    Create new order
 // @route   POST /api/orders
@@ -110,6 +170,9 @@ exports.verifyPaymentHandler = async (req, res) => {
         });
       }
 
+      // 🔥 DEDUCT STOCK FROM PRODUCTS
+      await deductStockFromOrder(order.items);
+
       console.log('📧 Sending confirmation email...');
 
       // Send payment confirmation email
@@ -173,6 +236,13 @@ exports.paystackWebhook = async (req, res) => {
       
       console.log('💰 Payment successful for order:', orderId);
       
+      // Check if order already processed (prevent double processing)
+      const existingOrder = await Order.findById(orderId);
+      if (existingOrder && existingOrder.paymentStatus === 'paid') {
+        console.log('⚠️ Order already processed, skipping...');
+        return res.sendStatus(200);
+      }
+      
       // Update order
       const order = await Order.findByIdAndUpdate(
         orderId,
@@ -186,6 +256,9 @@ exports.paystackWebhook = async (req, res) => {
       
       if (order) {
         console.log('✅ Order updated:', order.orderNumber);
+        
+        // 🔥 DEDUCT STOCK FROM PRODUCTS
+        await deductStockFromOrder(order.items);
         
         // Send payment confirmation email
         try {
@@ -291,6 +364,9 @@ exports.updateOrderStatus = async (req, res) => {
         });
         console.log('📧 Delivered notification sent');
       } else if (status === 'cancelled') {
+        // 🔥 RESTORE STOCK when order is cancelled
+        await restoreStockFromOrder(order.items);
+        
         await sendCancelledNotification({
           customerInfo: order.customerInfo,
           orderNumber: order.orderNumber,
@@ -313,6 +389,55 @@ exports.updateOrderStatus = async (req, res) => {
   }
 };
 
+// 🔥 HELPER: Restore stock when order is cancelled
+const restoreStockFromOrder = async (orderItems) => {
+  console.log('📦 Restoring stock for cancelled order...');
+  
+  for (const item of orderItems) {
+    try {
+      const product = await Product.findById(item.product);
+      if (!product) {
+        console.warn(`⚠️ Product not found: ${item.product}`);
+        continue;
+      }
+
+      const qtyToRestore = item.quantity || 1;
+
+      // Check if product has color-based inventory
+      if (product.colors && product.colors.length > 0 && item.selectedColor) {
+        const colorIndex = product.colors.findIndex(c => 
+          c.name && c.name.toLowerCase() === item.selectedColor.toLowerCase()
+        );
+
+        if (colorIndex !== -1) {
+          product.colors[colorIndex].quantity = (product.colors[colorIndex].quantity || 0) + qtyToRestore;
+          console.log(`✅ Restored ${qtyToRestore} to ${product.name} (${item.selectedColor})`);
+          
+          // Recalculate total
+          product.quantity = product.colors.reduce((sum, c) => sum + (c.quantity || 0), 0);
+        } else {
+          product.quantity = (product.quantity || 0) + qtyToRestore;
+        }
+      } else {
+        product.quantity = (product.quantity || 0) + qtyToRestore;
+        console.log(`✅ Restored ${qtyToRestore} to ${product.name}`);
+      }
+
+      // Update inStock and visibility
+      product.inStock = product.quantity > 0;
+      if (product.quantity > 0) {
+        product.visible = true; // Make visible again if stock restored
+      }
+
+      await product.save();
+    } catch (err) {
+      console.error(`❌ Error restoring stock for product ${item.product}:`, err);
+    }
+  }
+  
+  console.log('✅ Stock restoration complete');
+};
+
 // @desc    Create manual order
 // @route   POST /api/orders/manual
 // @access  Private/Admin
@@ -332,6 +457,11 @@ exports.createManualOrder = async (req, res) => {
       status: status || 'pending',
       isManualOrder: isManualOrder || true
     });
+
+    // 🔥 If manual order is marked as paid, deduct stock
+    if (paymentStatus === 'paid') {
+      await deductStockFromOrder(items);
+    }
 
     res.status(201).json({
       success: true,
