@@ -105,6 +105,16 @@ const productSchema = new mongoose.Schema({
     type: Boolean,
     default: true
   },
+
+  // ============================
+ // 🔥 PRODUCT TAG (Best Seller, Hot, etc.)
+ // ============================
+ tag: {
+   type: String,
+   enum: ['', 'best-seller', 'hot', 'new', 'recommended', 'limited', 'trending', 'sale', 'popular'],
+   default: ''
+ },
+
   createdAt: {
     type: Date,
     default: Date.now
