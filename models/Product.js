@@ -123,6 +123,14 @@ const productSchema = new mongoose.Schema({
    default: 99999
  },
 
+  // ============================
+ // SEARCH CATEGORIES (Hidden but searchable)
+ // ============================
+ searchCategories: {
+   type: [String],
+   default: []
+ },
+
   createdAt: {
     type: Date,
     default: Date.now
