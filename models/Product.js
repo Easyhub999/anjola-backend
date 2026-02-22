@@ -25,6 +25,11 @@ const productSchema = new mongoose.Schema({
     required: [true, 'Product name is required'],
     trim: true
   },
+  salesPrice: {
+    type: Number,
+    min: 0,
+    default: null
+  },
   price: {
     type: Number,
     required: [true, 'Price is required'],
