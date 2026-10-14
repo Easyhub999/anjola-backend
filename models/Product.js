@@ -85,6 +85,7 @@ const productSchema = new mongoose.Schema({
     type: Boolean,
     default: true
   },
+  inventoryAutoHidden: { type: Boolean, default: false },
   visible: {
     type: Boolean,
     default: true

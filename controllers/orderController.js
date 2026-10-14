@@ -2,286 +2,124 @@ const Order = require('../models/Order');
 const Product = require('../models/Product');
 const { initializePayment, verifyPayment } = require('../services/paystackService');
 const { 
-  sendOrderConfirmation, 
   sendPaymentConfirmation,
   sendShippedNotification,
   sendDeliveredNotification,
   sendCancelledNotification
 } = require('../services/emailService');
 const crypto = require('crypto');
+const mongoose = require('mongoose');
+const { priceOrder, checkoutError } = require('../services/orderPricing');
+const { createPaymentProcessor } = require('../services/paymentProcessing');
+const { changeStock, createOrderStatusUpdater } = require('../services/orderStatus');
+const updateStatus = createOrderStatusUpdater({ Order, Product, runTransaction: work => mongoose.connection.transaction(work) });
 
-// 🔥 HELPER: Deduct stock from products after successful payment
-const deductStockFromOrder = async (orderItems) => {
-  console.log('📦 Deducting stock for order items...');
-  
-  for (const item of orderItems) {
-    try {
-      const product = await Product.findById(item.product);
-      if (!product) {
-        console.warn(`⚠️ Product not found: ${item.product}`);
-        continue;
-      }
+const processPayment = createPaymentProcessor({
+  Order, Product,
+  runTransaction: work => mongoose.connection.transaction(work)
+});
 
-      const qtyToDeduct = item.quantity || 1;
-
-      // 🔥 Check if product has color-based inventory
-      if (product.colors && product.colors.length > 0 && item.selectedColor) {
-        // Find the specific color
-        const colorIndex = product.colors.findIndex(c => 
-          c.name && c.name.toLowerCase() === item.selectedColor.toLowerCase()
-        );
-
-        if (colorIndex !== -1) {
-          // Deduct from specific color
-          const currentColorQty = product.colors[colorIndex].quantity || 0;
-          product.colors[colorIndex].quantity = Math.max(0, currentColorQty - qtyToDeduct);
-          
-          console.log(`✅ Deducted ${qtyToDeduct} from ${product.name} (${item.selectedColor}): ${currentColorQty} → ${product.colors[colorIndex].quantity}`);
-          
-          // Recalculate total product quantity from all colors
-          product.quantity = product.colors.reduce((sum, c) => sum + (c.quantity || 0), 0);
-        } else {
-          // Color not found, deduct from total quantity
-          console.warn(`⚠️ Color "${item.selectedColor}" not found in ${product.name}, deducting from total`);
-          product.quantity = Math.max(0, (product.quantity || 0) - qtyToDeduct);
-        }
-      } else {
-        // No color-based inventory, deduct from total quantity
-        product.quantity = Math.max(0, (product.quantity || 0) - qtyToDeduct);
-        console.log(`✅ Deducted ${qtyToDeduct} from ${product.name}: now ${product.quantity}`);
-      }
-
-      // Update inStock status
-      product.inStock = product.quantity > 0;
-
-      // 🔥 Auto-hide if enabled and quantity is 0
-      if (product.autoHideWhenZero && product.quantity <= 0) {
-        product.visible = false;
-        console.log(`👁️ Auto-hiding ${product.name} (out of stock)`);
-      }
-
-      await product.save();
-    } catch (err) {
-      console.error(`❌ Error deducting stock for product ${item.product}:`, err);
-    }
+const sendPaymentReceipt = async ({ order, newlyPaid }) => {
+  if (!newlyPaid) return;
+  if (order.paymentReviewReason) {
+    console.error('Payment requires manual review:', order.orderNumber, order.paymentReviewReason);
+    return;
   }
-  
-  console.log('✅ Stock deduction complete');
+  try {
+    const result = await sendPaymentConfirmation(order);
+    if (!result?.success) console.error('Payment email failed for order:', order.orderNumber);
+  } catch (error) {
+    console.error('Payment email failed for order:', order.orderNumber);
+  }
 };
 
-// @desc    Create new order
-// @route   POST /api/orders
-// @access  Public
+const paymentError = (res, error) => res.status(error.statusCode || 500).json({
+  success: false,
+  message: error.statusCode ? error.message : 'Unable to process payment. Please try again or contact support.'
+});
+
+// Public checkout always creates a server-priced snapshot.
 exports.createOrder = async (req, res) => {
   try {
-    const { customerInfo, items, totalAmount } = req.body;
-
-    // Generate order number
-    const orderNumber = `ANJ${Date.now()}`;
-
-    // Create order
+    const priced = await priceOrder(req.body, id => Product.findById(id));
     const order = await Order.create({
+      ...priced,
       user: req.user ? req.user._id : null,
-      orderNumber,
-      customerInfo,
-      items,
-      totalAmount,
-      status: 'pending',
-      paymentStatus: 'pending'
+      orderNumber: `ANJ${Date.now()}-${crypto.randomBytes(4).toString('hex')}`,
+      paymentReference: `anj-${crypto.randomUUID()}`,
+      status: 'pending', paymentStatus: 'pending', stockDeducted: false
     });
-
-    // Email will be sent after payment confirmation
-
-    res.status(201).json({
-      success: true,
-      data: order
-    });
+    res.status(201).json({ success: true, data: order });
   } catch (error) {
-    console.error('Create order error:', error);
-    res.status(500).json({ message: 'Server error creating order' });
+    console.error('Create order error:', error.message);
+    paymentError(res, error);
   }
 };
 
-// @desc    Initialize Paystack payment
-// @route   POST /api/orders/initialize-payment
-// @access  Public
 exports.initializePaymentHandler = async (req, res) => {
   try {
-    const { email, amount, orderId, customerInfo } = req.body;
-
-    const metadata = {
-      orderId,
-      customerName: customerInfo.fullName,
-      customerPhone: customerInfo.phone
-    };
-
-    const response = await initializePayment(email, amount, metadata);
-
-    if (response.status) {
-      res.json({
-        success: true,
-        data: response.data
-      });
-    } else {
-      res.status(400).json({
-        success: false,
-        message: 'Payment initialization failed'
-      });
+    const { orderId } = req.body;
+    if (typeof orderId !== 'string' || !/^[a-f\d]{24}$/i.test(orderId)) throw checkoutError('Invalid order');
+    const order = await Order.findById(orderId).select('+paymentAuthorizationUrl');
+    if (!order) throw checkoutError('Order not found', 404);
+    if (order.pricingVersion !== 1) throw checkoutError('Please start a new checkout for this older order.', 409);
+    if (order.paymentStatus !== 'pending' || order.status !== 'pending') throw checkoutError('This order is no longer awaiting payment', 409);
+    if (order.paymentAuthorizationUrl) {
+      return res.json({ success: true, data: { authorization_url: order.paymentAuthorizationUrl, reference: order.paymentReference } });
     }
+    const response = await initializePayment(order.customerInfo.email, order.expectedAmount, {
+      orderId: String(order._id),
+      customerName: order.customerInfo.fullName,
+      customerPhone: order.customerInfo.phone
+    }, order.paymentReference);
+    if (!response.status || !response.data?.authorization_url || response.data.reference !== order.paymentReference) {
+      throw checkoutError('Payment initialization failed. Please try again.', 502);
+    }
+    await Order.updateOne({ _id: order._id }, { $set: { paymentAuthorizationUrl: response.data.authorization_url } });
+    res.json({ success: true, data: response.data });
   } catch (error) {
-    console.error('Payment initialization error:', error);
-    res.status(500).json({ message: 'Server error initializing payment' });
+    console.error('Payment initialization error:', error.message);
+    paymentError(res, error);
   }
 };
 
-// @desc    Verify Paystack payment
-// @route   GET /api/orders/verify-payment/:reference
-// @access  Public
 exports.verifyPaymentHandler = async (req, res) => {
   try {
     const { reference } = req.params;
-
-    console.log('🔍 Verifying payment reference:', reference);
-
+    if (!/^[a-zA-Z0-9.=-]{1,200}$/.test(reference)) throw checkoutError('Invalid payment reference');
     const response = await verifyPayment(reference);
-
-    console.log('✅ Paystack response received:', JSON.stringify(response, null, 2));
-
-    if (response.status && response.data.status === 'success') {
-      const orderId = response.data.metadata.orderId;
-      
-      console.log('💾 Updating order:', orderId);
-      
-      const order = await Order.findByIdAndUpdate(
-        orderId,
-        {
-          paymentStatus: 'paid',
-          paymentReference: reference,
-          status: 'processing'
-        },
-        { new: true }
-      );
-
-      if (!order) {
-        console.error('❌ Order not found:', orderId);
-        return res.status(404).json({
-          success: false,
-          message: 'Order not found'
-        });
-      }
-
-      // 🔥 DEDUCT STOCK FROM PRODUCTS
-      await deductStockFromOrder(order.items);
-
-      console.log('📧 Sending confirmation email...');
-
-      // Send payment confirmation email
-      try {
-        await sendPaymentConfirmation({
-          customerInfo: order.customerInfo,
-          totalAmount: order.totalAmount,
-          orderNumber: order.orderNumber,
-          paymentReference: reference,
-          items: order.items
-        });
-        console.log('✅ Email sent successfully');
-      } catch (emailError) {
-        console.error('⚠️ Email sending failed (non-critical):', emailError.message);
-      }
-
-      res.json({
-        success: true,
-        message: 'Payment verified successfully',
-        data: response.data
-      });
-    } else {
-      console.error('❌ Payment not successful:', response);
-      res.status(400).json({
-        success: false,
-        message: 'Payment verification failed'
-      });
-    }
+    if (!response.status || response.data?.reference !== reference) throw checkoutError('Payment verification failed');
+    const result = await processPayment(response.data);
+    await sendPaymentReceipt(result);
+    // Do not return Paystack card authorizations or customer details to this public endpoint.
+    res.json({ success: true, data: {
+      reference, amount: response.data.amount,
+      currency: response.data.currency,
+      needsReview: Boolean(result.order.paymentReviewReason)
+    } });
   } catch (error) {
-    console.error('💥 Payment verification error:', error);
-    res.status(500).json({ 
-      success: false,
-      message: 'Server error verifying payment: ' + error.message 
-    });
+    console.error('Payment verification error:', error.message);
+    paymentError(res, error);
   }
 };
 
-// @desc    Paystack Webhook Handler
-// @route   POST /api/orders/paystack-webhook
-// @access  Public (verified by signature)
 exports.paystackWebhook = async (req, res) => {
   try {
-    // Verify webhook signature
-    const hash = crypto
-      .createHmac('sha512', process.env.PAYSTACK_SECRET_KEY)
-      .update(JSON.stringify(req.body))
-      .digest('hex');
-
-    if (hash !== req.headers['x-paystack-signature']) {
-      console.log('❌ Invalid webhook signature');
+    if (!process.env.PAYSTACK_SECRET_KEY) return res.sendStatus(503);
+    const signature = req.headers['x-paystack-signature'];
+    if (!Buffer.isBuffer(req.rawBody) || typeof signature !== 'string' || !/^[a-f\d]{128}$/i.test(signature)) {
       return res.sendStatus(401);
     }
-
-    const event = req.body;
-    console.log('📥 Webhook event received:', event.event);
-
-    // Handle successful charge
-    if (event.event === 'charge.success') {
-      const orderId = event.data.metadata.orderId;
-      const reference = event.data.reference;
-      
-      console.log('💰 Payment successful for order:', orderId);
-      
-      // Check if order already processed (prevent double processing)
-      const existingOrder = await Order.findById(orderId);
-      if (existingOrder && existingOrder.paymentStatus === 'paid') {
-        console.log('⚠️ Order already processed, skipping...');
-        return res.sendStatus(200);
-      }
-      
-      // Update order
-      const order = await Order.findByIdAndUpdate(
-        orderId,
-        {
-          paymentStatus: 'paid',
-          paymentReference: reference,
-          status: 'processing'
-        },
-        { new: true }
-      );
-      
-      if (order) {
-        console.log('✅ Order updated:', order.orderNumber);
-        
-        // 🔥 DEDUCT STOCK FROM PRODUCTS
-        await deductStockFromOrder(order.items);
-        
-        // Send payment confirmation email
-        try {
-          await sendPaymentConfirmation({
-            customerInfo: order.customerInfo,
-            totalAmount: order.totalAmount,
-            orderNumber: order.orderNumber,
-            paymentReference: reference,
-            items: order.items
-          });
-          console.log('📧 Payment confirmation email sent!');
-        } catch (emailError) {
-          console.error('⚠️ Email error:', emailError);
-        }
-      } else {
-        console.error('❌ Order not found:', orderId);
-      }
+    const hash = crypto.createHmac('sha512', process.env.PAYSTACK_SECRET_KEY).update(req.rawBody).digest();
+    if (!crypto.timingSafeEqual(hash, Buffer.from(signature, 'hex'))) return res.sendStatus(401);
+    if (req.body.event === 'charge.success') {
+      const result = await processPayment(req.body.data);
+      await sendPaymentReceipt(result);
     }
-    
     res.sendStatus(200);
   } catch (error) {
-    console.error('💥 Webhook error:', error);
-    res.sendStatus(500);
+    console.error('Payment webhook error:', error.message);
+    res.sendStatus(error.statusCode || 500);
   }
 };
 
@@ -326,116 +164,29 @@ exports.getMyOrders = async (req, res) => {
   }
 };
 
-// @desc    Update order status (WITH EMAIL NOTIFICATIONS)
-// @route   PUT /api/orders/:id
-// @access  Private/Admin
+// Status and stock changes commit together; repeat requests have no side effects.
 exports.updateOrderStatus = async (req, res) => {
   try {
     const { status, trackingNumber } = req.body;
-    
-    const updateData = { status };
-    if (trackingNumber) {
-      updateData.trackingNumber = trackingNumber;
-    }
-    
-    const order = await Order.findByIdAndUpdate(
-      req.params.id,
-      updateData,
-      { new: true }
-    );
-    
-    if (!order) {
-      return res.status(404).json({ message: 'Order not found' });
-    }
-
-    // Send appropriate email notification based on status
-    try {
-      if (status === 'shipped') {
-        await sendShippedNotification({
-          customerInfo: order.customerInfo,
-          orderNumber: order.orderNumber,
-          trackingNumber: trackingNumber || order.trackingNumber
+    const { order, changed } = await updateStatus(req.params.id, status, trackingNumber);
+    if (changed) {
+      try {
+        if (status === 'shipped') await sendShippedNotification(order);
+        else if (status === 'delivered') await sendDeliveredNotification(order);
+        else if (status === 'cancelled') await sendCancelledNotification({
+          customerInfo: order.customerInfo, orderNumber: order.orderNumber,
+          items: order.items, totalAmount: order.totalAmount,
+          refundInfo: order.paymentStatus === 'paid'
+            ? 'Please contact us to confirm your refund arrangements. Cancellation does not automatically issue a refund.'
+            : undefined
         });
-        console.log('📧 Shipped notification sent');
-      } else if (status === 'delivered') {
-        await sendDeliveredNotification({
-          customerInfo: order.customerInfo,
-          orderNumber: order.orderNumber
-        });
-        console.log('📧 Delivered notification sent');
-      } else if (status === 'cancelled') {
-        // 🔥 RESTORE STOCK when order is cancelled
-        await restoreStockFromOrder(order.items);
-        
-        await sendCancelledNotification({
-          customerInfo: order.customerInfo,
-          orderNumber: order.orderNumber,
-          refundInfo: 'Your refund will be processed within 5-7 business days.'
-        });
-        console.log('📧 Cancelled notification sent');
-      }
-    } catch (emailError) {
-      console.error('⚠️ Email notification error:', emailError);
-      // Don't fail the status update if email fails
+      } catch (error) { console.error('Order notification failed:', order.orderNumber); }
     }
-    
-    res.json({
-      success: true,
-      data: order
-    });
+    res.json({ success: true, data: order });
   } catch (error) {
-    console.error('Update order error:', error);
-    res.status(500).json({ message: 'Server error' });
+    res.status(error.statusCode || 500).json({ success: false,
+      message: error.statusCode ? error.message : 'Unable to update order. No partial inventory update was committed.' });
   }
-};
-
-// 🔥 HELPER: Restore stock when order is cancelled
-const restoreStockFromOrder = async (orderItems) => {
-  console.log('📦 Restoring stock for cancelled order...');
-  
-  for (const item of orderItems) {
-    try {
-      const product = await Product.findById(item.product);
-      if (!product) {
-        console.warn(`⚠️ Product not found: ${item.product}`);
-        continue;
-      }
-
-      const qtyToRestore = item.quantity || 1;
-
-      // Check if product has color-based inventory
-      if (product.colors && product.colors.length > 0 && item.selectedColor) {
-        const colorIndex = product.colors.findIndex(c => 
-          c.name && c.name.toLowerCase() === item.selectedColor.toLowerCase()
-        );
-
-        if (colorIndex !== -1) {
-          product.colors[colorIndex].quantity = (product.colors[colorIndex].quantity || 0) + qtyToRestore;
-          console.log(`✅ Restored ${qtyToRestore} to ${product.name} (${item.selectedColor})`);
-          
-          // Recalculate total
-          product.quantity = product.colors.reduce((sum, c) => sum + (c.quantity || 0), 0);
-        } else {
-          product.quantity = (product.quantity || 0) + qtyToRestore;
-        }
-      } else {
-        product.quantity = (product.quantity || 0) + qtyToRestore;
-        console.log(`✅ Restored ${qtyToRestore} to ${product.name}`);
-      }
-
-      // Update inStock and visibility
-      product.inStock = product.quantity > 0;
-      if (product.quantity > 0) {
-        product.visible = true; // Make visible again if stock restored
-      }
-
-      await product.save();
-    } catch (err) {
-      console.error(`❌ Error restoring stock for product ${item.product}:`, err);
-    }
-  }
-  
-  console.log('✅ Stock restoration complete');
 };
 
 // @desc    Create manual order
@@ -443,25 +194,26 @@ const restoreStockFromOrder = async (orderItems) => {
 // @access  Private/Admin
 exports.createManualOrder = async (req, res) => {
   try {
-    const { customerInfo, items, totalAmount, paymentStatus, status, isManualOrder } = req.body;
+    const { customerInfo, items, totalAmount, paymentStatus, status } = req.body;
 
     const orderNumber = `MAN${Date.now().toString().slice(-8)}`;
 
-    const order = await Order.create({
-      user: req.user ? req.user._id : null,
-      orderNumber,
-      customerInfo,
-      items,
-      totalAmount,
-      paymentStatus: paymentStatus || 'pending',
-      status: status || 'pending',
-      isManualOrder: isManualOrder || true
+    const order = await mongoose.connection.transaction(async session => {
+      if (!Array.isArray(items) || !items.length) throw checkoutError('Please add at least one product');
+      const initialStatus = status || 'pending';
+      const paid = paymentStatus === 'paid';
+      if (initialStatus === 'cancelled' || (!paid && initialStatus !== 'pending')) {
+        throw checkoutError('Create unpaid orders as pending, and cancel existing orders through order management');
+      }
+      const priced = await priceOrder({ customerInfo, items, totalAmount }, id => Product.findById(id).session(session), true);
+      const [created] = await Order.create([{
+        user: null, orderNumber, customerInfo: priced.customerInfo, items: priced.items, totalAmount: priced.totalAmount,
+        paymentStatus: paymentStatus || 'pending', status: initialStatus,
+        isManualOrder: true, stockDeducted: paid
+      }], { session });
+      if (paid) await changeStock(created.items, -1, Product, session);
+      return created;
     });
-
-    // 🔥 If manual order is marked as paid, deduct stock
-    if (paymentStatus === 'paid') {
-      await deductStockFromOrder(items);
-    }
 
     res.status(201).json({
       success: true,
@@ -469,9 +221,9 @@ exports.createManualOrder = async (req, res) => {
     });
   } catch (error) {
     console.error('Create manual order error:', error);
-    res.status(500).json({ 
+    res.status(error.statusCode || 500).json({ 
       success: false,
-      message: 'Server error creating manual order',
+      message: error.statusCode ? error.message : 'Server error creating manual order',
       error: error.message 
     });
   }

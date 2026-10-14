@@ -233,7 +233,7 @@ exports.sendPaymentConfirmation = async (orderData) => {
 
     const itemsHTML = items ? generateCompactItemsHTML(items) : '';
 
-    const data = await resend.emails.send({
+    const { data, error } = await resend.emails.send({
       from: process.env.EMAIL_FROM,
       to: customerInfo.email,
       subject: `💳 Payment Confirmed - Order #${orderNumber}`,
@@ -312,8 +312,9 @@ exports.sendPaymentConfirmation = async (orderData) => {
       `
     });
 
-    console.log('✅ Payment confirmation email sent:', data.id);
-    return { success: true, messageId: data.id };
+    if (error) throw new Error(error.message || 'Payment email was rejected');
+    console.log('✅ Payment confirmation email sent:', data?.id);
+    return { success: true, messageId: data?.id };
   } catch (error) {
     console.error('❌ Payment email error:', error);
     return { success: false, error: error.message };

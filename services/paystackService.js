@@ -1,11 +1,13 @@
 const https = require('https');
 
 // Initialize Paystack payment
-exports.initializePayment = async (email, amount, metadata) => {
+exports.initializePayment = async (email, amount, metadata, reference) => {
   const params = JSON.stringify({
     email,
     amount,
     metadata,
+    reference,
+    currency: 'NGN',
     // Redirect user back to your site after payment
     callback_url: process.env.FRONTEND_URL 
       ? `${process.env.FRONTEND_URL}/shop`
@@ -40,6 +42,7 @@ exports.initializePayment = async (email, amount, metadata) => {
       });
     });
 
+    req.setTimeout(15000, () => req.destroy(new Error('Paystack request timed out')));
     req.on('error', (error) => {
       reject(error);
     });
@@ -54,7 +57,7 @@ exports.verifyPayment = async (reference) => {
   const options = {
     hostname: 'api.paystack.co',
     port: 443,
-    path: `/transaction/verify/${reference}`,
+    path: `/transaction/verify/${encodeURIComponent(reference)}`,
     method: 'GET',
     headers: {
       Authorization: `Bearer ${process.env.PAYSTACK_SECRET_KEY}`,
@@ -79,6 +82,7 @@ exports.verifyPayment = async (reference) => {
       });
     });
 
+    req.setTimeout(15000, () => req.destroy(new Error('Paystack request timed out')));
     req.on('error', (error) => {
       reject(error);
     });

@@ -4,11 +4,8 @@ const User = require('../models/User');
 // Protect routes
 exports.protect = async (req, res, next) => {
   try {
-    let token;
-
-    if (req.headers.authorization && req.headers.authorization.startsWith('Bearer')) {
-      token = req.headers.authorization.split(' ')[1];
-    }
+    const authorization = req.headers.authorization;
+    const token = typeof authorization === 'string' ? /^Bearer ([^\s]+)$/i.exec(authorization)?.[1] : undefined;
 
     if (!token) {
       return res.status(401).json({ message: 'Not authorized, no token provided' });
@@ -41,4 +38,9 @@ exports.adminOnly = (req, res, next) => {
   } else {
     res.status(403).json({ message: 'Access denied. Admin only.' });
   }
+};
+// Guests may checkout, but supplied credentials must be valid.
+exports.optionalAuth = (req, res, next) => {
+  if (req.headers.authorization === undefined) return next();
+  return exports.protect(req, res, next);
 };

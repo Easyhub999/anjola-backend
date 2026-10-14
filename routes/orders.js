@@ -8,10 +8,10 @@ const {
   initializePaymentHandler,
   verifyPaymentHandler
 } = require('../controllers/orderController');
-const { protect, adminOnly } = require('../middleware/auth');
+const { protect, adminOnly, optionalAuth } = require('../middleware/auth');
 
 // Public routes
-router.post('/', createOrder);
+router.post('/', optionalAuth, createOrder);
 router.post('/initialize-payment', initializePaymentHandler);
 router.get('/verify-payment/:reference', verifyPaymentHandler);
 router.post('/paystack-webhook', require('../controllers/orderController').paystackWebhook);

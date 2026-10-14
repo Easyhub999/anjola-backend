@@ -18,6 +18,8 @@ const orderSchema = new mongoose.Schema({
     address: { type: String, required: true },
     city: { type: String, required: true },
     state: { type: String, required: true },
+    isGift: { type: Boolean, default: false },
+    giftMessage: { type: String, maxlength: 500, default: '' },
     shippingMethod: { type: String },
     shippingCost: { type: Number, default: 0 }
   },
@@ -34,6 +36,8 @@ const orderSchema = new mongoose.Schema({
       required: true,
       min: 1
     },
+    // No default: older orders deducted quantity, regardless of pack size.
+    stockQuantity: { type: Number, min: 1 },
     selectedSize: {
       type: String,
       default: null
@@ -73,6 +77,18 @@ const orderSchema = new mongoose.Schema({
   paymentReference: {
     type: String
   },
+  // No defaults: legacy orders must not be treated as server-priced orders.
+  pricingVersion: Number,
+  expectedAmount: Number,
+  currency: String,
+  stockDeducted: Boolean,
+  stockRestoredAt: Date,
+  inventoryReviewReason: String,
+  trackingNumber: String,
+  isManualOrder: Boolean,
+  paymentReviewReason: String,
+  paidAt: Date,
+  paymentAuthorizationUrl: { type: String, select: false },
   createdAt: {
     type: Date,
     default: Date.now

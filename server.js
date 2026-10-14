@@ -31,7 +31,11 @@ app.use(cors({
 }));
 
 // Middleware
-app.use(express.json());
+app.use(express.json({
+  verify: (req, res, buffer) => {
+    if (req.originalUrl.split('?')[0] === '/api/orders/paystack-webhook') req.rawBody = buffer;
+  }
+}));
 app.use(express.urlencoded({ extended: true }));
 
 // ===============================
