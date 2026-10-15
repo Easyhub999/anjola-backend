@@ -21,6 +21,14 @@ This change is local until the backend and frontend are deployed. It does not mi
 6. Confirm `MONGODB_URI`, `PAYSTACK_SECRET_KEY`, `FRONTEND_URL`, `RESEND_API_KEY`, and `EMAIL_FROM` on the intended Render service. Never commit their values.
 7. Confirm Paystack's webhook points to `https://anjola-backend.onrender.com/api/orders/paystack-webhook` and the frontend uses that backend. For test deployments, use their corresponding URLs.
 
+## Payment return URL hotfix
+
+- Newly initialized Paystack transactions always use `https://anjolaaestheticsng.com/shop` as their callback. `FRONTEND_URL` no longer controls payment redirects, so stale localhost, malformed, or external values cannot send a paying customer away from the storefront. This includes test-key sessions: local return URLs are deliberately unsupported by this hotfix. The existing `/shop` verification route remains compatible with the deployed frontend.
+- Correct the Render service's `FRONTEND_URL` to `https://anjolaaestheticsng.com` as well, so older backend versions cannot reintroduce the local callback during a rollback. Configure Paystack's dashboard callback to the canonical shop URL too, for transactions initialized outside this service.
+- Deploy the backend to protect newly initialized transactions. Previously initialized checkout sessions, including cached authorization URLs reused for an order, retain their original Paystack callback. Redeploying cannot rewrite those sessions. Do not ask an already charged customer to pay again; verify their existing transaction reference through the storefront's `/shop?reference=...` return route or reconcile the order with Paystack and Admin Orders. Unpaid customers with an old session should start a fresh checkout after deployment.
+- Callback failure does not by itself mean payment failed. Webhook delivery and confirmation email are separate operations; confirm the saved order payment status and Paystack transaction before retrying payment or arranging fulfillment.
+- Regression tests inspect the outgoing HTTPS request with mocked credentials and responses. They verify callback isolation from configuration and unchanged amount, currency, metadata and reference; they do not charge a card or exercise Paystack's live redirect.
+
 ## Test-mode acceptance checks
 
 - Buy a regular item, a sale item, a color/size item, and a pack variation; match the displayed total to the Paystack charge and order record.

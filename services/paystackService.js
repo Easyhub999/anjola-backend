@@ -1,5 +1,9 @@
 const https = require('https');
 
+// Payments must return to the storefront, even if a deployment retained a local
+// FRONTEND_URL. Keep /shop compatible with already-deployed payment verification.
+const PAYMENT_CALLBACK_URL = 'https://anjolaaestheticsng.com/shop';
+
 // Initialize Paystack payment
 exports.initializePayment = async (email, amount, metadata, reference) => {
   const params = JSON.stringify({
@@ -8,10 +12,7 @@ exports.initializePayment = async (email, amount, metadata, reference) => {
     metadata,
     reference,
     currency: 'NGN',
-    // Redirect user back to your site after payment
-    callback_url: process.env.FRONTEND_URL 
-      ? `${process.env.FRONTEND_URL}/shop`
-      : 'https://anjolaaestheticsng.com/shop'
+    callback_url: PAYMENT_CALLBACK_URL
   });
 
   const options = {
