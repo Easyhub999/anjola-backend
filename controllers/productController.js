@@ -32,15 +32,21 @@ exports.getAllProducts = async (req, res) => {
 // GET SINGLE PRODUCT
 // =====================================================
 exports.getProduct = async (req, res) => {
+  const { id } = req.params;
+  // Public product links must contain a MongoDB ObjectId, not an arbitrary query.
+  if (typeof id !== 'string' || !/^[a-f\d]{24}$/i.test(id)) {
+    return res.status(404).json({ message: "Product not found" });
+  }
+
   try {
-    const product = await Product.findById(req.params.id);
-    if (!product)
+    const product = await Product.findById(id);
+    if (!product || product.visible === false)
       return res.status(404).json({ message: "Product not found" });
 
     return res.json({ success: true, data: product });
   } catch (error) {
     console.error("Get product error:", error);
-    return res.status(error.statusCode || 500).json({ message: error.statusCode ? error.message : "Server error" });
+    return res.status(500).json({ message: "Server error" });
   }
 };
 
