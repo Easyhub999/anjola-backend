@@ -1,3 +1,5 @@
+// A single packaging charge per gift order, independent of item or pack quantity.
+const GIFT_PACKAGING_FEE = 2000;
 const SHIPPING_OPTIONS = [
   { id: 'abeokuta', label: 'Delivery Within Abeokuta', price: 0 },
   { id: 'park', label: 'Park Delivery (Lagos, Ogun, Ilorin, Oyo, Osun, Ondo, Ekiti)', price: 0 },
@@ -34,6 +36,7 @@ async function priceOrder(body, findProduct, manualShipping = false) {
     throw checkoutError('Gift messages must be 500 characters or fewer');
   }
   customerInfo.isGift = input.isGift === true;
+  customerInfo.giftPackagingFee = customerInfo.isGift ? GIFT_PACKAGING_FEE : 0;
   customerInfo.giftMessage = customerInfo.isGift ? (input.giftMessage || '').trim() : '';
   customerInfo.email = customerInfo.email.toLowerCase();
   if (!/^\S+@\S+\.\S+$/.test(customerInfo.email)) throw checkoutError('Please provide a valid email');
@@ -49,7 +52,7 @@ async function priceOrder(body, findProduct, manualShipping = false) {
   const products = new Map();
   const quantities = new Map();
   const colorQuantities = new Map();
-  let amount = toKobo(shipping.price);
+  let amount = toKobo(shipping.price) + toKobo(customerInfo.giftPackagingFee);
   for (const item of body.items) {
     if (!item || typeof item.product !== 'string' || !/^[a-f\d]{24}$/i.test(item.product)) {
       throw checkoutError('Invalid product');
@@ -111,4 +114,4 @@ async function priceOrder(body, findProduct, manualShipping = false) {
   return { customerInfo, items, totalAmount: amount / 100, expectedAmount: amount, currency: 'NGN', pricingVersion: 1 };
 }
 
-module.exports = { priceOrder, toKobo, checkoutError, SHIPPING_OPTIONS };
+module.exports = { priceOrder, toKobo, checkoutError, SHIPPING_OPTIONS, GIFT_PACKAGING_FEE };

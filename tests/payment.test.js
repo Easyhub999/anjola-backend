@@ -478,3 +478,100 @@ test('manual pricing validates variants and preserves explicit shipping charges'
   await db.deps.runTransaction(session => changeStock(priced.items, -1, db.deps.Product, session));
   assert.equal(db.state().products[0].quantity, 4);
 });
+
+test('gift packaging adds a server-owned fee once per order, not per item or pack', async () => {
+  const body = request();
+  body.customerInfo.isGift = true;
+  body.customerInfo.giftPackagingFee = 1;
+  body.giftPackagingFee = 0;
+  body.items = [{ product: productId, quantity: 2, selectedPieces: 3 }, { product: productId, quantity: 1, selectedPieces: 3 }];
+  const priced = await priceOrder(body, async () => ({ ...product(), priceVariations: [{ pieces: 3, price: 2700 }] }));
+  assert.equal(priced.customerInfo.giftPackagingFee, 2000);
+  assert.equal(priced.totalAmount, 8100 + 5600 + 2000);
+  assert.equal(priced.expectedAmount, 1570000);
+  assert.equal(priced.items.reduce((sum, item) => sum + item.stockQuantity, 0), 9);
+});
+
+test('ordinary orders do not pay gift packaging even when a client submits a fee or message', async () => {
+  for (const isGift of [undefined, false]) {
+    const body = request();
+    Object.assign(body.customerInfo, { isGift, giftPackagingFee: 2000, giftMessage: 'Leftover message' });
+    const priced = await priceOrder(body, async () => product());
+    assert.equal(priced.customerInfo.giftPackagingFee, 0);
+    assert.equal(priced.customerInfo.giftMessage, '');
+    assert.equal(priced.totalAmount, 7200);
+  }
+});
+
+test('gift checkout rejects stale fee-free totals and accepts the amount shown by the new checkout', async () => {
+  const body = request(); body.customerInfo.isGift = true;
+  await assert.rejects(priceOrder({ ...body, totalAmount: 7200 }, async () => product()), error => error.statusCode === 409);
+  const priced = await priceOrder({ ...body, totalAmount: 9200 }, async () => product());
+  assert.equal(priced.expectedAmount, 920000);
+  body.customerInfo.isGift = 'true';
+  await assert.rejects(priceOrder(body, async () => product()), /Invalid gift selection/);
+});
+
+test('gift charges persist for new orders without changing historical order charges', async () => {
+  const OrderModel = require('../models/Order');
+  const body = request(); body.customerInfo.isGift = true;
+  const priced = await priceOrder(body, async () => product());
+  const saved = new OrderModel({ ...priced, orderNumber: 'gift-charge-test' }).toObject();
+  assert.equal(saved.customerInfo.giftPackagingFee, 2000);
+  assert.equal(saved.totalAmount, 9200);
+  const historical = new OrderModel({ ...order(), customerInfo: { ...customer(), isGift: true } }).toObject();
+  assert.equal(historical.customerInfo.giftPackagingFee, undefined);
+  assert.equal(historical.totalAmount, 7200);
+  const db = database({ ...order(), customerInfo: { ...customer(), isGift: true } });
+  await db.process(payment());
+  assert.equal(db.state().order.totalAmount, 7200);
+  assert.equal(db.state().order.customerInfo.giftPackagingFee, undefined);
+});
+
+test('manual gift orders use the same fixed packaging fee', async () => {
+  const body = request(); Object.assign(body.customerInfo, { isGift: true, shippingCost: 1500, giftPackagingFee: 0 });
+  const priced = await priceOrder({ ...body, totalAmount: 5100 }, async () => product(), true);
+  assert.equal(priced.customerInfo.giftPackagingFee, 2000);
+  assert.equal(priced.totalAmount, 5100);
+});
+
+test('payment initialization and verification include the saved packaging fee', async () => {
+  const body = request(); body.customerInfo.isGift = true;
+  const priced = await priceOrder(body, async () => product());
+  const saved = { ...order(), ...priced };
+  let sent;
+  const c = controller({
+    '../models/Order': { findById: () => ({ select: async () => saved }), updateOne: async () => {} },
+    '../services/paystackService': { initializePayment: async (...args) => {
+      sent = args; return { status: true, data: { reference: saved.paymentReference, authorization_url: 'https://checkout.paystack.com/test' } };
+    } }
+  });
+  const res = response();
+  await c.handlers.initializePaymentHandler({ body: { orderId, amount: 720000 } }, res);
+  assert.equal(res.code, 200);
+  assert.equal(sent[1], 920000);
+  const db = database(saved);
+  await assert.rejects(db.process(payment()), /amount or currency/);
+  assert.equal(db.writes(), 0);
+  await db.process({ ...payment(), amount: 920000 });
+  assert.equal(db.state().order.paymentStatus, 'paid');
+  assert.equal(db.state().products[0].quantity, 8);
+});
+
+test('receipt emails list saved packaging fees and never infer them for old gift orders', async () => {
+  let sent;
+  const context = { exports: {}, module: {}, process: { env: {} }, console: { log() {}, error() {} },
+    require: () => ({ Resend: class { constructor() { this.emails = { send: async message => { sent = message; return { data: { id: 'test-email' }, error: null }; } }; } } }) };
+  vm.runInNewContext(fs.readFileSync(require.resolve('../services/emailService'), 'utf8'), context);
+  for (const name of ['sendOrderConfirmation', 'sendPaymentConfirmation', 'sendShippedNotification', 'sendDeliveredNotification', 'sendCancelledNotification']) {
+    await context.exports[name]({ ...order(), totalAmount: 9200, customerInfo: { ...customer(), isGift: true, giftPackagingFee: 2000, shippingCost: 5600 } });
+    assert.match(sent.html, /Gift packaging/);
+    assert.match(sent.html, /₦2,000/);
+    assert.match(sent.html, /₦9,200/);
+    await context.exports[name]({ ...order(), customerInfo: { ...customer(), isGift: true } });
+    assert.match(sent.html, /Not recorded/);
+    assert.doesNotMatch(sent.html, /₦2,000/);
+    await context.exports[name]({ ...order(), customerInfo: { ...customer(), isGift: false, giftPackagingFee: 0 } });
+    assert.doesNotMatch(sent.html, /Gift packaging/);
+  }
+});

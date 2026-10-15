@@ -19,6 +19,8 @@ const orderSchema = new mongoose.Schema({
     city: { type: String, required: true },
     state: { type: String, required: true },
     isGift: { type: Boolean, default: false },
+    // No default: historical orders must not acquire a charge they never paid.
+    giftPackagingFee: { type: Number, min: 0 },
     giftMessage: { type: String, maxlength: 500, default: '' },
     shippingMethod: { type: String },
     shippingCost: { type: Number, default: 0 }

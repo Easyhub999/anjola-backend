@@ -65,3 +65,12 @@ Inventory counts individual pieces. Newly created orders store a server-calculat
 - Before production, verify a concurrent purchase versus an open stock form on the test Atlas database, a three-piece manual order with a selected color, and payment/cancellation restoration for both new and historical orders. Audit historical pack inventory separately; this change does not correct earlier under-deductions.
 
 Validation for the inventory batch: 45 backend tests and 13 targeted frontend tests passed; the production frontend build succeeded. Database concurrency is simulated in unit tests and still requires the test Atlas acceptance check.
+
+## Gift packaging charge (October 2026)
+
+- New gift orders add a fixed ₦2,000 once per order, including manually created gift orders. It is independent of line count, quantity, pack size and shipping.
+- The backend derives `customerInfo.giftPackagingFee` from the boolean `isGift` selection. Submitted fee values are ignored. The saved total and Paystack `expectedAmount` include the charge.
+- Checkout discloses the fee before selection, shows it as a separate line and removes it when the option is deselected. Admin details, customer history and email summaries read the saved fee.
+- No migration or backfill is needed. The schema has no default fee, so existing orders retain their original amounts; a missing historical fee is shown as “Not recorded”. Existing payment sessions retain their saved amounts.
+- Deploy backend and frontend together, backend first. During a mixed-version rollout, gift checkouts with mismatched totals fail with a refresh message rather than silently charging a different amount. Non-gift checkout is unaffected.
+- Regression checks cover fixed per-order pricing, tampered charges, stale totals, saved and historical fees, manual gift orders, payment initialization/verification, and mocked receipt emails. Tests do not create live orders or charge real payments.

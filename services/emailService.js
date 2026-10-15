@@ -3,6 +3,18 @@ const { Resend } = require('resend');
 // Initialize Resend with API key
 const resend = new Resend(process.env.RESEND_API_KEY);
 
+// Only describe saved charges; older gift orders must not inherit today's fee.
+const generateChargeRows = (customerInfo, labelColumns = 2) => {
+  const recorded = value => typeof value === 'number' && Number.isFinite(value) && value >= 0;
+  const charges = [];
+  if (recorded(customerInfo?.shippingCost)) charges.push(['Shipping', customerInfo.shippingCost]);
+  if (customerInfo?.isGift || customerInfo?.giftPackagingFee > 0) charges.push(['Gift packaging', customerInfo.giftPackagingFee]);
+  return charges.map(([label, amount]) => `<tr>
+    <td colspan="${labelColumns}" style="padding: 12px; text-align: right;">${label}</td>
+    <td style="padding: 12px; text-align: right;">${recorded(amount) ? `₦${amount.toLocaleString('en-NG')}` : 'Not recorded'}</td>
+  </tr>`).join('');
+};
+
 // Helper function to generate items HTML with images
 const generateItemsHTML = (items, showImages = true) => {
   return items.map(item => {
@@ -188,6 +200,7 @@ exports.sendOrderConfirmation = async (orderData) => {
                 </thead>
                 <tbody>
                   ${itemsHTML}
+                  ${generateChargeRows(customerInfo, 3)}
                   <tr class="total-row">
                     <td colspan="3" style="text-align: right;"><strong>Total:</strong></td>
                     <td style="text-align: right; color: #f5576c;"><strong>₦${totalAmount.toLocaleString()}</strong></td>
@@ -291,6 +304,7 @@ exports.sendPaymentConfirmation = async (orderData) => {
                   </thead>
                   <tbody>
                     ${itemsHTML}
+                    ${generateChargeRows(customerInfo)}
                   </tbody>
                 </table>
               ` : ''}
@@ -383,6 +397,7 @@ exports.sendShippedNotification = async (orderData) => {
                   </thead>
                   <tbody>
                     ${itemsHTML}
+                    ${generateChargeRows(customerInfo)}
                   </tbody>
                 </table>
                 ${totalAmount ? `
@@ -482,6 +497,7 @@ exports.sendDeliveredNotification = async (orderData) => {
                   </thead>
                   <tbody>
                     ${itemsHTML}
+                    ${generateChargeRows(customerInfo)}
                   </tbody>
                 </table>
                 ${totalAmount ? `
@@ -591,6 +607,7 @@ exports.sendCancelledNotification = async (orderData) => {
                   </thead>
                   <tbody>
                     ${itemsHTML}
+                    ${generateChargeRows(customerInfo)}
                   </tbody>
                 </table>
                 ${totalAmount ? `
