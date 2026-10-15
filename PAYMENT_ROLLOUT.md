@@ -31,6 +31,17 @@ This change is local until the backend and frontend are deployed. It does not mi
 
 ## Test-mode acceptance checks
 
+### Customer-paid Paystack fees
+
+- Paystack's dashboard preference to pass transaction fees to customers can make the collected `amount` larger than the order's saved `expectedAmount`. A live affected reference returned HTTP 409 from the former exact-amount check despite the customer's successful Paystack receipt.
+- Exact payments remain supported. A larger collected amount is accepted only when the trusted provider's `requested_amount` exactly matches the saved order amount and its positive integer `fees` accounts for the increase, with at most one additional kobo for gross-up rounding. Underpayments, unexplained excess, and mismatched currency, reference, order or customer remain rejected. Order pricing is unchanged.
+- Signed webhook payloads missing `requested_amount` are verified with Paystack before processing. An unavailable or mismatched verification does not acknowledge the webhook as successful.
+- Customer and webhook responses are sent after the database transaction commits and before waiting for the best-effort receipt email. Email delivery remains non-durable; this change does not add retries or guarantee receipt delivery.
+- After the backend deploys, retry an affected customer's original reference. This processes the existing charge, not a new payment. Replays retain the shared transaction guard against duplicate stock deductions and receipts.
+- Official references: [Paystack transaction pricing](https://support.paystack.com/en/articles/2130306) and [verification response fields](https://paystack.com/docs/payments/verify-payments/).
+
+### Checkout and inventory
+
 - Buy a regular item, a sale item, a color/size item, and a pack variation; match the displayed total to the Paystack charge and order record.
 - Replay the same verification request and webhook; payment and stock must be applied once.
 - Exercise two simultaneous payments against limited stock; one may need manual review, but stock must not become negative.

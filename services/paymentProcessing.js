@@ -4,12 +4,26 @@ function validatePayment(order, payment) {
   if (!order) throw checkoutError('Order not found', 404);
   if (payment.status !== 'success') throw checkoutError('Payment has not succeeded');
   if (payment.reference !== order.paymentReference) throw checkoutError('Payment reference does not match this order', 409);
+  if (!Number.isSafeInteger(payment.amount) || payment.amount <= 0) {
+    throw checkoutError('Invalid payment amount', 409);
+  }
   // Older paid orders may be revisited, but must never be fulfilled again.
   if (order.paymentStatus === 'paid' && order.pricingVersion !== 1) return;
   if (order.pricingVersion !== 1 || !Number.isSafeInteger(order.expectedAmount) || order.expectedAmount <= 0) {
     throw checkoutError('This older order needs payment review. Please contact support if you have paid.', 409);
   }
-  if (payment.amount !== order.expectedAmount || payment.currency !== order.currency) {
+  const requestedAmountMatches = Number.isSafeInteger(payment.requested_amount) && payment.requested_amount === order.expectedAmount;
+  if (payment.requested_amount != null && !requestedAmountMatches) {
+    throw checkoutError('Payment requested amount does not match the order', 409);
+  }
+  // Paystack can add its fee when the merchant passes fees to the customer.
+  // Only trust the original requested amount from verified provider data and
+  // require the entire increase to be its fee, plus at most one kobo rounding.
+  const increase = payment.amount - order.expectedAmount;
+  const includesCustomerFee = increase > 0 && requestedAmountMatches &&
+    Number.isSafeInteger(payment.fees) && payment.fees > 0 &&
+    (increase === payment.fees || increase - payment.fees === 1);
+  if ((payment.amount !== order.expectedAmount && !includesCustomerFee) || payment.currency !== order.currency) {
     throw checkoutError('Payment amount or currency does not match the order', 409);
   }
   if (typeof payment.customer?.email !== 'string' || payment.customer.email.toLowerCase() !== order.customerInfo.email.toLowerCase()) {

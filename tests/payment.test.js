@@ -118,6 +118,83 @@ test('underpayment, overpayment, currency, reference and customer mismatches do 
   }
 });
 
+const feeOrder = () => ({ ...order(), expectedAmount: 150000, totalAmount: 1500,
+  items: [{ product: productId, name: 'Tote', price: 1500, quantity: 1 }] });
+const feePayment = () => ({ ...payment(), amount: 152285, requested_amount: 150000, fees: 2284 });
+
+test('provider-confirmed customer fees accept exact fees and one kobo gross-up rounding', async () => {
+  for (const fees of [2284, 2285]) {
+    const db = database(feeOrder());
+    const result = await db.process({ ...feePayment(), fees });
+    assert.equal(result.newlyPaid, true);
+    assert.equal(db.state().order.paymentStatus, 'paid');
+    assert.equal(db.state().order.expectedAmount, 150000);
+    assert.equal(db.state().order.totalAmount, 1500);
+    assert.equal(db.state().products[0].quantity, 9);
+    assert.equal(db.writes(), 1);
+  }
+});
+
+test('exact payments retain compatibility with absent, null and matching requested amounts', async () => {
+  for (const requested_amount of [undefined, null, 720000]) {
+    const db = database();
+    await db.process({ ...payment(), requested_amount, fees: 1000 });
+    assert.equal(db.state().order.paymentStatus, 'paid');
+    assert.equal(db.state().products[0].quantity, 8);
+  }
+});
+
+test('malformed, underpaid and unexplained excess payments leave order and inventory unchanged', async () => {
+  const rejected = [
+    { amount: 149999, fees: 1 },
+    { amount: 150001, fees: 0 },
+    { amount: 152286 }, // More than one kobo beyond the verified fee.
+    { amount: 500000 },
+    { requested_amount: undefined }, { requested_amount: null },
+    { requested_amount: 149999 }, { requested_amount: 150001 },
+    { requested_amount: '150000' }, { requested_amount: 150000.5 },
+    { requested_amount: NaN }, { requested_amount: Infinity },
+    { requested_amount: Number.MAX_SAFE_INTEGER + 1 },
+    { fees: undefined }, { fees: null }, { fees: 0 }, { fees: -1 },
+    { fees: 2283 }, { fees: 2286 }, { fees: '2285' }, { fees: 2284.5 },
+    { fees: NaN }, { fees: Infinity }, { fees: Number.MAX_SAFE_INTEGER + 1 },
+    { amount: '152285' }, { amount: 152285.5 }, { amount: NaN },
+    { amount: Infinity }, { amount: 0 }, { amount: -1 },
+    { amount: Number.MAX_SAFE_INTEGER + 1 },
+    { currency: 'USD' }, { reference: 'wrong-reference' },
+    { customer: { email: 'wrong@example.com' } }, { status: 'failed' }, { metadata: {} }
+  ];
+  for (const change of rejected) {
+    const db = database(feeOrder());
+    const before = structuredClone(db.state());
+    await assert.rejects(db.process({ ...feePayment(), ...change }));
+    assert.deepEqual(db.state(), before);
+    assert.equal(db.writes(), 0);
+  }
+});
+
+test('a supplied requested amount must also match when the collected amount is exact', async () => {
+  for (const requested_amount of [719999, 720001, '720000', 720000.5, NaN, 0, false]) {
+    const db = database();
+    const before = structuredClone(db.state());
+    await assert.rejects(db.process({ ...payment(), requested_amount }), /requested amount/);
+    assert.deepEqual(db.state(), before);
+    assert.equal(db.writes(), 0);
+  }
+});
+
+test('fee-inclusive verification retries deduct once and preserve later fulfillment status', async () => {
+  const db = database(feeOrder());
+  const results = await Promise.all([db.process(feePayment()), db.process(feePayment()), db.process(feePayment())]);
+  assert.equal(results.filter(result => result.newlyPaid).length, 1);
+  assert.equal(db.writes(), 1);
+  assert.equal(db.state().products[0].quantity, 9);
+  const shipped = database({ ...feeOrder(), paymentStatus: 'paid', status: 'shipped', stockDeducted: true });
+  assert.equal((await shipped.process(feePayment())).newlyPaid, false);
+  assert.equal(shipped.state().order.status, 'shipped');
+  assert.equal(shipped.writes(), 0);
+});
+
 test('parallel webhook and callback processing only fulfill once', async () => {
   const db = database();
   const results = await Promise.all([db.process(payment()), db.process(payment()), db.process(payment())]);
@@ -178,8 +255,8 @@ test('untrusted legacy unpaid orders cannot be fulfilled', async () => {
   assert.equal(db.writes(), 0);
 });
 
-function controller(overrides = {}) {
-  const db = database();
+function controller(overrides = {}, initialOrder = order()) {
+  const db = database(initialOrder);
   let emails = 0;
   const dependencies = {
     '../models/Order': db.deps.Order,
@@ -232,6 +309,31 @@ test('webhook signs raw bytes and shares processing with the verification callba
   assert.equal(callback.body.data.amount, 720000);
   assert.equal(callback.body.data.customer, undefined);
 });
+
+for (const sparseWebhook of [false, true]) {
+test(`signed customer-fee webhook (${sparseWebhook ? 'enriched' : 'complete'}) and callback share one fulfillment`, async () => {
+  const verified = feePayment();
+  const c = controller({
+    '../services/paystackService': { verifyPayment: async () => ({ status: true, data: verified }) }
+  }, feeOrder());
+  const webhookData = { ...verified };
+  if (sparseWebhook) delete webhookData.requested_amount;
+  const body = { event: 'charge.success', data: webhookData };
+  const rawBody = Buffer.from(JSON.stringify(body));
+  const signature = crypto.createHmac('sha512', 'test-secret').update(rawBody).digest('hex');
+  const webhook = response(); const callback = response();
+  await Promise.all([
+    c.handlers.paystackWebhook({ body, rawBody, headers: { 'x-paystack-signature': signature } }, webhook),
+    c.handlers.verifyPaymentHandler({ params: { reference: verified.reference } }, callback)
+  ]);
+  assert.equal(webhook.code, 200); assert.equal(callback.code, 200);
+  assert.equal(c.emails(), 1); assert.equal(c.db.writes(), 1);
+  assert.equal(c.db.state().products[0].quantity, 9);
+  assert.equal(callback.body.data.amount, 152285);
+  assert.equal(callback.body.data.needsReview, false);
+  assert.equal(callback.body.data.customer, undefined);
+});
+}
 
 test('invalid webhook signatures cannot change an order', async () => {
   const c = controller(); const res = response();

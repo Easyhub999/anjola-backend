@@ -88,15 +88,16 @@ exports.verifyPaymentHandler = async (req, res) => {
     const { reference } = req.params;
     if (!/^[a-zA-Z0-9.=-]{1,200}$/.test(reference)) throw checkoutError('Invalid payment reference');
     const response = await verifyPayment(reference);
-    if (!response.status || response.data?.reference !== reference) throw checkoutError('Payment verification failed');
+    if (response?.status !== true || response.data?.reference !== reference) throw checkoutError('Payment verification failed');
     const result = await processPayment(response.data);
-    await sendPaymentReceipt(result);
     // Do not return Paystack card authorizations or customer details to this public endpoint.
     res.json({ success: true, data: {
       reference, amount: response.data.amount,
       currency: response.data.currency,
       needsReview: Boolean(result.order.paymentReviewReason)
     } });
+    // Payment has committed. Receipt delivery must not delay customer confirmation.
+    await sendPaymentReceipt(result);
   } catch (error) {
     console.error('Payment verification error:', error.message);
     paymentError(res, error);
@@ -112,11 +113,23 @@ exports.paystackWebhook = async (req, res) => {
     }
     const hash = crypto.createHmac('sha512', process.env.PAYSTACK_SECRET_KEY).update(req.rawBody).digest();
     if (!crypto.timingSafeEqual(hash, Buffer.from(signature, 'hex'))) return res.sendStatus(401);
+    let result;
     if (req.body.event === 'charge.success') {
-      const result = await processPayment(req.body.data);
-      await sendPaymentReceipt(result);
+      let payment = req.body.data;
+      // Older webhook payloads can omit the original requested amount. Obtain it
+      // from Paystack before deciding whether a higher charge is a customer fee.
+      if (payment?.requested_amount == null) {
+        if (typeof payment?.reference !== 'string' || !/^[a-zA-Z0-9.=-]{1,200}$/.test(payment.reference)) {
+          throw checkoutError('Invalid payment reference');
+        }
+        const response = await verifyPayment(payment.reference);
+        if (response?.status !== true || response.data?.reference !== payment.reference) throw checkoutError('Payment verification failed');
+        payment = response.data;
+      }
+      result = await processPayment(payment);
     }
     res.sendStatus(200);
+    if (result) await sendPaymentReceipt(result);
   } catch (error) {
     console.error('Payment webhook error:', error.message);
     res.sendStatus(error.statusCode || 500);
