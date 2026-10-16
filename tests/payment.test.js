@@ -742,3 +742,96 @@ test('all order emails report provider rejections and return the accepted messag
     assert.equal(accepted.messageId, 'accepted-email');
   }
 });
+
+test('manual pricing allows missing email while public checkout still requires it', async () => {
+  const body = request(); delete body.customerInfo.email;
+  const priced = await priceOrder(body, async () => product(), true);
+  assert.equal(priced.customerInfo.email, '');
+  await assert.rejects(priceOrder(body, async () => product()), /email/);
+  body.customerInfo.email = 'invalid';
+  await assert.rejects(priceOrder(body, async () => product(), true), /email/);
+});
+
+test('order schema requires email only for website orders', async () => {
+  const Order = require('../models/Order');
+  const customerInfo = { ...customer(), email: '' };
+  await new Order({ ...order(), isManualOrder: true, customerInfo }).validate();
+  await assert.rejects(new Order({ ...order(), customerInfo }).validate(), /email/);
+});
+
+test('recording manual payment twice deducts colored pack stock exactly once', async () => {
+  const { createManualPaymentRecorder } = require('../services/manualPayment');
+  const initial = { ...order(), isManualOrder: true, items: [{ ...order().items[0], selectedColor: 'Pink', selectedPieces: 3, stockQuantity: 6 }] };
+  const db = database(initial, [{ ...product(), colors: [{ name: 'Pink', quantity: 10 }] }]);
+  const record = createManualPaymentRecorder(db.deps);
+  const results = await Promise.all([record(orderId, { paymentMethod: 'cash' }), record(orderId, { paymentMethod: 'cash' })]);
+  assert.equal(results.filter(result => result.newlyPaid).length, 1);
+  assert.equal(db.state().products[0].quantity, 4);
+  assert.equal(db.state().products[0].colors[0].quantity, 4);
+  assert.equal(db.state().order.paymentStatus, 'paid');
+  assert.equal(db.state().order.status, 'processing');
+  assert.equal(db.state().order.paymentMethod, 'cash');
+  assert(db.state().order.paidAt);
+});
+
+test('manual payment rejects website, cancelled and ambiguous legacy inventory orders', async () => {
+  const { createManualPaymentRecorder } = require('../services/manualPayment');
+  for (const initial of [order(), { ...order(), isManualOrder: true, status: 'cancelled' }, { ...order(), isManualOrder: true, stockDeducted: undefined }]) {
+    const db = database(initial);
+    await assert.rejects(createManualPaymentRecorder(db.deps)(orderId, { paymentMethod: 'bank_transfer' }));
+    assert.equal(db.state().order.paymentStatus, 'pending');
+    assert.equal(db.state().products[0].quantity, 10);
+  }
+});
+
+test('manual payment rolls back on inventory shortage or failed save', async () => {
+  const { createManualPaymentRecorder } = require('../services/manualPayment');
+  for (const shortage of [true, false]) {
+    const db = database({ ...order(), isManualOrder: true }, [{ ...product(), quantity: shortage ? 1 : 10 }]);
+    if (!shortage) db.failNextSave();
+    await assert.rejects(createManualPaymentRecorder(db.deps)(orderId, { paymentMethod: 'bank_transfer' }));
+    assert.equal(db.state().order.paymentStatus, 'pending');
+    assert.equal(db.state().order.stockDeducted, false);
+    assert.equal(db.state().products[0].quantity, shortage ? 1 : 10);
+  }
+});
+
+test('manual order creation persists source and notes, with no email required', async () => {
+  let saved;
+  const c = controller({
+    '../models/Order': { create: async ([value]) => { saved = value; return [value]; } }
+  });
+  const body = { ...request(), paymentStatus: 'pending', orderSource: 'whatsapp', paymentMethod: 'bank_transfer', internalNotes: 'Call before delivery' };
+  delete body.customerInfo.email;
+  const res = response();
+  await c.handlers.createManualOrder({ body }, res);
+  assert.equal(res.code, 201);
+  assert.equal(saved.customerInfo.email, '');
+  assert.equal(saved.orderSource, 'whatsapp');
+  assert.equal(saved.paymentMethod, 'bank_transfer');
+  assert.equal(saved.internalNotes, 'Call before delivery');
+  assert.equal(saved.stockDeducted, false);
+  assert.equal(saved.sendCustomerEmail, false);
+});
+
+test('manual creation rejects invalid payment method, source and email selection', async () => {
+  for (const extra of [{ paymentMethod: 'paystack' }, { orderSource: 'unsupported' }, { sendCustomerEmail: true, customerInfo: { ...customer(), email: '' } }, { paymentStatus: 'failed' }]) {
+    let creates = 0;
+    const c = controller({ '../models/Order': { create: async () => { creates++; return []; } } });
+    const res = response();
+    await c.handlers.createManualOrder({ body: { ...request(), ...extra } }, res);
+    assert.equal(res.code, 400);
+    assert.equal(creates, 0);
+  }
+});
+
+test('manual email exceptions do not report a saved order as failed', async () => {
+  const c = controller({
+    '../models/Order': { create: async ([value]) => [value] },
+    '../services/emailService': { sendOrderConfirmation: async () => { throw new Error('Network unavailable'); } }
+  });
+  const res = response();
+  await c.handlers.createManualOrder({ body: { ...request(), sendCustomerEmail: true } }, res);
+  assert.equal(res.code, 201);
+  assert.equal(res.body.emailConfirmation.success, false);
+});

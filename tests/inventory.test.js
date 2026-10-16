@@ -31,3 +31,16 @@ test('stock edits use an atomic saved-version filter; missing or stale versions 
   assert.equal((await send({ visible: false, $set: { quantity: 100 } })).code, 200);
   assert.equal(current.quantity, 9);
 });
+
+test('product creation persists sale price, badge and search keywords', async () => {
+  let saved;
+  const Product = { create: async value => { saved = value; return value; } };
+  const context = { exports: {}, console: { error() {} }, require: name => name.includes('models/Product') ? Product : { validateInventory } };
+  vm.runInNewContext(fs.readFileSync(require.resolve('../controllers/productController'), 'utf8'), context);
+  const res = { code: 200, status(code) { this.code = code; return this; }, json(value) { this.body = value; } };
+  await context.exports.createProduct({ body: { name: 'Tote', description: 'Everyday bag', price: 2000, salesPrice: 1500, category: 'Bags', images: ['/bag.jpg'], quantity: 5, tag: 'new', searchCategories: ['gifts'] } }, res);
+  assert.equal(res.code, 201);
+  assert.equal(saved.salesPrice, 1500);
+  assert.equal(saved.tag, 'new');
+  assert.deepEqual(saved.searchCategories, ['gifts']);
+});

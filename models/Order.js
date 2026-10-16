@@ -13,7 +13,7 @@ const orderSchema = new mongoose.Schema({
   },
   customerInfo: {
     fullName: { type: String, required: true },
-    email: { type: String, required: true },
+    email: { type: String, required: function () { return !this.isManualOrder; } },
     phone: { type: String, required: true },
     address: { type: String, required: true },
     city: { type: String, required: true },
@@ -88,6 +88,9 @@ const orderSchema = new mongoose.Schema({
   inventoryReviewReason: String,
   trackingNumber: String,
   isManualOrder: Boolean,
+  orderSource: { type: String, enum: ['whatsapp', 'instagram', 'phone', 'in_person', 'other'] },
+  internalNotes: { type: String, maxlength: 2000 },
+  sendCustomerEmail: Boolean,
   paymentReviewReason: String,
   paidAt: Date,
   paymentAuthorizationUrl: { type: String, select: false },

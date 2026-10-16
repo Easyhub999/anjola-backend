@@ -26,6 +26,7 @@ async function priceOrder(body, findProduct, manualShipping = false) {
   const input = body?.customerInfo;
   const customerInfo = {};
   for (const field of ['fullName', 'email', 'phone', 'address', 'city', 'state']) {
+    if (manualShipping && field === 'email' && (input?.email == null || input.email === '')) { customerInfo.email = ''; continue; }
     if (typeof input?.[field] !== 'string' || !input[field].trim() || input[field].length > 500) {
       throw checkoutError(`Please provide a valid ${field}`);
     }
@@ -39,7 +40,7 @@ async function priceOrder(body, findProduct, manualShipping = false) {
   customerInfo.giftPackagingFee = customerInfo.isGift ? GIFT_PACKAGING_FEE : 0;
   customerInfo.giftMessage = customerInfo.isGift ? (input.giftMessage || '').trim() : '';
   customerInfo.email = customerInfo.email.toLowerCase();
-  if (!/^\S+@\S+\.\S+$/.test(customerInfo.email)) throw checkoutError('Please provide a valid email');
+  if (customerInfo.email && !/^\S+@\S+\.\S+$/.test(customerInfo.email)) throw checkoutError('Please provide a valid email');
   // Accept existing storefront labels during a backend-first deployment.
   const shipping = manualShipping ? { label: input.shippingMethod || 'Manual delivery', price: input.shippingCost ?? 0 } : SHIPPING_OPTIONS.find(option => option.id === input.shippingMethodId || option.label === input.shippingMethod);
   if (!shipping) throw checkoutError('Please select a valid shipping method');

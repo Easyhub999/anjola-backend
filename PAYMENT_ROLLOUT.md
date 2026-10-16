@@ -93,3 +93,12 @@ Validation for the inventory batch: 45 backend tests and 13 targeted frontend te
 - No migration or backfill is needed. The schema has no default fee, so existing orders retain their original amounts; a missing historical fee is shown as “Not recorded”. Existing payment sessions retain their saved amounts.
 - Deploy backend and frontend together, backend first. During a mixed-version rollout, gift checkouts with mismatched totals fail with a refresh message rather than silently charging a different amount. Non-gift checkout is unaffected.
 - Regression checks cover fixed per-order pricing, tampered charges, stale totals, saved and historical fees, manual gift orders, payment initialization/verification, and mocked receipt emails. Tests do not create live orders or charge real payments.
+
+## Outside orders and product editor
+
+- Admins can create WhatsApp, Instagram, phone, in-person and other orders. Email is optional only for manual orders; website checkout still requires it. Internal notes stay in admin order records.
+- New manual orders store the actual payment method and optional reference. Unpaid orders do not reserve or deduct stock. Paid orders deduct stock in the existing transaction and default to processing.
+- The admin-only `POST /api/orders/:id/record-payment` endpoint records payment and deducts stock atomically. Repeated requests leave paid orders unchanged. Website orders, cancellations and legacy unpaid records with ambiguous stock history cannot use it.
+- Manual customer emails are opt-in. Provider failures do not roll back saved orders. Email delivery remains best effort.
+- Product creation now persists sale price, badge and search keywords, matching updates. The new product editor preserves unsaved values after server errors and includes the original updatedAt value when editing inventory. Legacy string-only colors require explicit stock counts before saving.
+- Deploy backend before frontend. No historical order migration is required. Unit tests cover rollback, duplicate payment requests, optional email, source metadata, and pricing; they do not replace an integration test on a separate Atlas database.

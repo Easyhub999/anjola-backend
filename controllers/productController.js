@@ -88,6 +88,9 @@ exports.createProduct = async (req, res) => {
       price,
       category,
       images,
+      salesPrice: req.body.salesPrice ?? null,
+      tag: req.body.tag || '',
+      searchCategories: req.body.searchCategories || [],
       sizes: sizes || [],
       colors: colors || [],
       priceVariations: priceVariations || [],  // 🔥 ADD THIS

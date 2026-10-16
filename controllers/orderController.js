@@ -9,7 +9,9 @@ const {
   sendCancelledNotification
 } = require('../services/emailService');
 const crypto = require('crypto');
+const { paymentDetails, createManualPaymentRecorder } = require('../services/manualPayment');
 const mongoose = require('mongoose');
+const recordManualPayment = createManualPaymentRecorder({ Order, Product, runTransaction: work => mongoose.connection.transaction(work) });
 const { priceOrder, checkoutError } = require('../services/orderPricing');
 const { createPaymentProcessor } = require('../services/paymentProcessing');
 const { changeStock, createOrderStatusUpdater } = require('../services/orderStatus');
@@ -21,7 +23,7 @@ const processPayment = createPaymentProcessor({
 });
 
 const sendPaymentReceipt = async ({ order, newlyPaid }) => {
-  if (!newlyPaid) return;
+  if (!newlyPaid || (order.isManualOrder && !order.sendCustomerEmail)) return;
   if (order.paymentReviewReason) {
     console.error('Payment requires manual review:', order.orderNumber, order.paymentReviewReason);
     return;
@@ -195,6 +197,7 @@ exports.updateOrderStatus = async (req, res) => {
         if (status === 'shipped') await sendShippedNotification(order);
         else if (status === 'delivered') await sendDeliveredNotification(order);
         else if (status === 'cancelled') await sendCancelledNotification({
+          isManualOrder: order.isManualOrder, sendCustomerEmail: order.sendCustomerEmail,
           customerInfo: order.customerInfo, orderNumber: order.orderNumber,
           items: order.items, totalAmount: order.totalAmount,
           refundInfo: order.paymentStatus === 'paid'
@@ -217,11 +220,19 @@ exports.createManualOrder = async (req, res) => {
   try {
     const { customerInfo, items, totalAmount, paymentStatus, status } = req.body;
 
-    const orderNumber = `MAN${Date.now().toString().slice(-8)}`;
+    const orderNumber = `MAN${Date.now()}-${crypto.randomBytes(4).toString('hex')}`;
+    const orderSource = req.body.orderSource || 'other';
+    if (!['whatsapp', 'instagram', 'phone', 'in_person', 'other'].includes(orderSource)) throw checkoutError('Invalid order source');
+    const internalNotes = req.body.internalNotes || '';
+    if (typeof internalNotes !== 'string' || internalNotes.length > 2000) throw checkoutError('Notes must be 2,000 characters or fewer');
+    if (req.body.sendCustomerEmail !== undefined && typeof req.body.sendCustomerEmail !== 'boolean') throw checkoutError('Invalid email selection');
+    if (req.body.sendCustomerEmail && (typeof customerInfo?.email !== 'string' || !customerInfo.email.trim())) throw checkoutError('Enter an email address to send a confirmation');
+    const details = paymentDetails({ paymentMethod: req.body.paymentMethod || 'other', paymentReference: req.body.paymentReference });
+    if (paymentStatus && !['pending', 'paid'].includes(paymentStatus)) throw checkoutError('Choose unpaid or paid');
 
     const order = await mongoose.connection.transaction(async session => {
       if (!Array.isArray(items) || !items.length) throw checkoutError('Please add at least one product');
-      const initialStatus = status || 'pending';
+      const initialStatus = status || (paymentStatus === 'paid' ? 'processing' : 'pending');
       const paid = paymentStatus === 'paid';
       if (initialStatus === 'cancelled' || (!paid && initialStatus !== 'pending')) {
         throw checkoutError('Create unpaid orders as pending, and cancel existing orders through order management');
@@ -230,16 +241,19 @@ exports.createManualOrder = async (req, res) => {
       const [created] = await Order.create([{
         user: null, orderNumber, customerInfo: priced.customerInfo, items: priced.items, totalAmount: priced.totalAmount,
         paymentStatus: paymentStatus || 'pending', status: initialStatus,
-        isManualOrder: true, stockDeducted: paid
+        isManualOrder: true, stockDeducted: paid, orderSource, internalNotes: internalNotes.trim(),
+        ...details, paidAt: paid ? new Date() : undefined, sendCustomerEmail: req.body.sendCustomerEmail === true
       }], { session });
       if (paid) await changeStock(created.items, -1, Product, session);
       return created;
     });
 
-    res.status(201).json({
-      success: true,
-      data: order
-    });
+    let emailConfirmation;
+    if (order.sendCustomerEmail) {
+      try { emailConfirmation = await (order.paymentStatus === 'paid' ? sendPaymentConfirmation(order) : sendOrderConfirmation(order)); }
+      catch (error) { emailConfirmation = { success: false }; console.error('Manual order email failed:', order.orderNumber); }
+    }
+    res.status(201).json({ success: true, data: order, emailConfirmation });
   } catch (error) {
     console.error('Create manual order error:', error);
     res.status(error.statusCode || 500).json({ 
@@ -247,5 +261,15 @@ exports.createManualOrder = async (req, res) => {
       message: error.statusCode ? error.message : 'Server error creating manual order',
       error: error.message 
     });
+  }
+};
+
+exports.recordManualPayment = async (req, res) => {
+  try {
+    const result = await recordManualPayment(req.params.id, req.body);
+    res.json({ success: true, data: result.order });
+    await sendPaymentReceipt(result);
+  } catch (error) {
+    paymentError(res, error);
   }
 };

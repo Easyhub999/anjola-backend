@@ -113,6 +113,7 @@ const generateCompactItemsHTML = (items) => {
 // Send order confirmation email
 exports.sendOrderConfirmation = async (orderData) => {
   try {
+    if (orderData.isManualOrder && (!orderData.customerInfo?.email || !orderData.sendCustomerEmail)) return { success: true, skipped: true };
     const { customerInfo, items, totalAmount, orderNumber } = orderData;
 
     const itemsHTML = generateItemsHTML(items);
@@ -243,6 +244,7 @@ exports.sendOrderConfirmation = async (orderData) => {
 // Send payment confirmation email
 exports.sendPaymentConfirmation = async (orderData) => {
   try {
+    if (orderData.isManualOrder && (!orderData.customerInfo?.email || !orderData.sendCustomerEmail)) return { success: true, skipped: true };
     const { customerInfo, totalAmount, orderNumber, paymentReference, items } = orderData;
 
     const itemsHTML = items ? generateCompactItemsHTML(items) : '';
@@ -339,6 +341,7 @@ exports.sendPaymentConfirmation = async (orderData) => {
 // Send shipped notification
 exports.sendShippedNotification = async (orderData) => {
   try {
+    if (orderData.isManualOrder && (!orderData.customerInfo?.email || !orderData.sendCustomerEmail)) return { success: true, skipped: true };
     const { customerInfo, orderNumber, trackingNumber, items, totalAmount } = orderData;
 
     const itemsHTML = items && items.length > 0 ? generateCompactItemsHTML(items) : '';
@@ -443,6 +446,7 @@ exports.sendShippedNotification = async (orderData) => {
 // Send delivered notification - NOW WITH FULL ORDER DETAILS
 exports.sendDeliveredNotification = async (orderData) => {
   try {
+    if (orderData.isManualOrder && (!orderData.customerInfo?.email || !orderData.sendCustomerEmail)) return { success: true, skipped: true };
     const { customerInfo, orderNumber, items, totalAmount } = orderData;
 
     const itemsHTML = items && items.length > 0 ? generateCompactItemsHTML(items) : '';
@@ -554,6 +558,7 @@ exports.sendDeliveredNotification = async (orderData) => {
 // Send cancelled notification - NOW WITH FULL ORDER DETAILS
 exports.sendCancelledNotification = async (orderData) => {
   try {
+    if (orderData.isManualOrder && (!orderData.customerInfo?.email || !orderData.sendCustomerEmail)) return { success: true, skipped: true };
     const { customerInfo, orderNumber, refundInfo, items, totalAmount } = orderData;
 
     const itemsHTML = items && items.length > 0 ? generateCompactItemsHTML(items) : '';
