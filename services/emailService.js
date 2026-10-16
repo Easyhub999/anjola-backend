@@ -218,12 +218,12 @@ exports.sendOrderConfirmation = async (orderData) => {
                 ${customerInfo.shippingMethod ? `<p style="margin-top: 10px; color: #f5576c;"><strong>Shipping:</strong> ${customerInfo.shippingMethod}</p>` : ''}
               </div>
               
-              <p><strong>What's Next?</strong> Complete your payment and we'll send you a confirmation email with tracking details.</p>
+              <p><strong>What's Next?</strong> Complete your payment so we can process your order. We'll send a payment confirmation and a separate shipment update, with tracking details where available.</p>
             </div>
             
             <div class="footer">
               <p><strong>Anjola Aesthetics Ng</strong></p>
-              <p>hello@anjolaaestheticsng.com</p>
+              <p>anjolaaestheticsng@gmail.com</p>
               <p>&copy; ${new Date().getFullYear()} Anjola Aesthetics Ng. All rights reserved.</p>
             </div>
           </div>
@@ -313,14 +313,14 @@ exports.sendPaymentConfirmation = async (orderData) => {
               ` : ''}
               
               <h3 style="color: #84fab0;">🚚 What's Next?</h3>
-              <p>We're carefully packaging your items. You'll receive a shipping confirmation email with tracking information within 24-48 hours.</p>
+              <p>We'll send a shipment update when your order is dispatched, including tracking details where available. Dispatch and delivery timing depend on your selected delivery route. Contact us if you need an update for your order.</p>
               
               <p style="margin-top: 30px;">Thank you for choosing <strong>Anjola Aesthetics Ng</strong>! ✨</p>
             </div>
             
             <div class="footer">
               <p><strong>Anjola Aesthetics Ng</strong></p>
-              <p>hello@anjolaaestheticsng.com</p>
+              <p>anjolaaestheticsng@gmail.com</p>
               <p>&copy; ${new Date().getFullYear()} Anjola Aesthetics Ng. All rights reserved.</p>
             </div>
           </div>
@@ -417,15 +417,15 @@ exports.sendShippedNotification = async (orderData) => {
                 <p style="margin: 5px 0 0 0;">📱 ${customerInfo.phone}</p>
               </div>
               
-              <h3 style="color: #667eea;">⏱️ Expected Delivery</h3>
-              <p>Your package should arrive within <strong>3-5 business days</strong>. We'll notify you once it's delivered!</p>
+              <h3 style="color: #667eea;">⏱️ Delivery Updates</h3>
+              <p>Delivery timing depends on your selected route and the transport provider. Contact us for an update or if your parcel has not arrived within the estimate provided for your order.</p>
               
               <p style="margin-top: 30px;">Thank you for shopping with <strong>Anjola Aesthetics</strong>! ✨</p>
             </div>
             
             <div class="footer">
               <p><strong>Anjola Aesthetics Ng</strong></p>
-              <p>hello@anjolaaestheticsng.com</p>
+              <p>anjolaaestheticsng@gmail.com</p>
               <p>&copy; ${new Date().getFullYear()} Anjola Aesthetics Ng. All rights reserved.</p>
             </div>
           </div>
@@ -537,7 +537,7 @@ exports.sendDeliveredNotification = async (orderData) => {
             
             <div class="footer">
               <p><strong>Anjola Aesthetics Ng</strong></p>
-              <p>hello@anjolaaestheticsng.com</p>
+              <p>anjolaaestheticsng@gmail.com</p>
               <p>&copy; ${new Date().getFullYear()} Anjola Aesthetics Ng. All rights reserved.</p>
             </div>
           </div>
@@ -632,7 +632,7 @@ exports.sendCancelledNotification = async (orderData) => {
             
             <div class="footer">
               <p><strong>Anjola Aesthetics Ng</strong></p>
-              <p>hello@anjolaaestheticsng.com</p>
+              <p>anjolaaestheticsng@gmail.com</p>
               <p>&copy; ${new Date().getFullYear()} Anjola Aesthetics Ng. All rights reserved.</p>
             </div>
           </div>
