@@ -677,3 +677,68 @@ test('receipt emails list saved packaging fees and never infer them for old gift
     assert.doesNotMatch(sent.html, /Gift packaging/);
   }
 });
+
+test('checkout sends the saved order confirmation without delaying the response', async () => {
+  let emailed, finishEmail;
+  const saved = order();
+  const c = controller({
+    '../models/Order': { create: async () => saved },
+    '../services/orderPricing': { priceOrder: async () => saved },
+    '../services/emailService': { sendOrderConfirmation: async value => {
+      emailed = value;
+      return new Promise(resolve => { finishEmail = resolve; });
+    } }
+  });
+  const res = response();
+  const work = c.handlers.createOrder({ body: request() }, res);
+  await new Promise(setImmediate);
+  assert.equal(res.code, 201);
+  assert.equal(res.body.data, saved);
+  assert.equal(emailed, saved);
+  finishEmail({ success: false, error: 'Provider unavailable' });
+  await work;
+  assert.equal(res.code, 201);
+  assert.equal(res.body.success, true);
+});
+
+test('checkout email exceptions do not turn a saved order into a failed checkout', async () => {
+  const c = controller({
+    '../models/Order': { create: async () => order() },
+    '../services/orderPricing': { priceOrder: async () => order() },
+    '../services/emailService': { sendOrderConfirmation: async () => { throw new Error('Network error'); } }
+  });
+  const res = response();
+  await c.handlers.createOrder({ body: request() }, res);
+  assert.equal(res.code, 201);
+  assert.equal(res.body.success, true);
+});
+
+test('failed order save never sends a confirmation', async () => {
+  let emails = 0;
+  const c = controller({
+    '../models/Order': { create: async () => { throw new Error('Database unavailable'); } },
+    '../services/orderPricing': { priceOrder: async () => order() },
+    '../services/emailService': { sendOrderConfirmation: async () => { emails++; } }
+  });
+  const res = response();
+  await c.handlers.createOrder({ body: request() }, res);
+  assert.equal(res.code, 500);
+  assert.equal(emails, 0);
+});
+
+test('all order emails report provider rejections and return the accepted message ID', async () => {
+  let providerResult;
+  const context = { exports: {}, module: {}, process: { env: {} }, console: { log() {}, error() {} },
+    require: () => ({ Resend: class { constructor() { this.emails = { send: async () => providerResult }; } } }) };
+  vm.runInNewContext(fs.readFileSync(require.resolve('../services/emailService'), 'utf8'), context);
+  for (const name of ['sendOrderConfirmation', 'sendPaymentConfirmation', 'sendShippedNotification', 'sendDeliveredNotification', 'sendCancelledNotification']) {
+    providerResult = { data: null, error: { message: 'Sender domain is not verified' } };
+    const failed = await context.exports[name](order());
+    assert.equal(failed.success, false, name);
+    assert.equal(failed.error, 'Sender domain is not verified');
+    providerResult = { data: { id: 'accepted-email' }, error: null };
+    const accepted = await context.exports[name](order());
+    assert.equal(accepted.success, true, name);
+    assert.equal(accepted.messageId, 'accepted-email');
+  }
+});

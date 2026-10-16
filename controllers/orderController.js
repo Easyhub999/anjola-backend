@@ -2,6 +2,7 @@ const Order = require('../models/Order');
 const Product = require('../models/Product');
 const { initializePayment, verifyPayment } = require('../services/paystackService');
 const { 
+  sendOrderConfirmation,
   sendPaymentConfirmation,
   sendShippedNotification,
   sendDeliveredNotification,
@@ -50,6 +51,13 @@ exports.createOrder = async (req, res) => {
       status: 'pending', paymentStatus: 'pending', stockDeducted: false
     });
     res.status(201).json({ success: true, data: order });
+    // Send only after the order is saved; email failure must not undo checkout.
+    try {
+      const result = await sendOrderConfirmation(order);
+      if (!result?.success) console.error('Order confirmation failed:', order.orderNumber, result?.error);
+    } catch (error) {
+      console.error('Order confirmation failed:', order.orderNumber, error.message);
+    }
   } catch (error) {
     console.error('Create order error:', error.message);
     paymentError(res, error);

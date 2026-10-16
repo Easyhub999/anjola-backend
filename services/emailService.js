@@ -117,7 +117,7 @@ exports.sendOrderConfirmation = async (orderData) => {
 
     const itemsHTML = generateItemsHTML(items);
 
-    const data = await resend.emails.send({
+    const { data, error } = await resend.emails.send({
       from: process.env.EMAIL_FROM,
       to: customerInfo.email,
       subject: `✨ Order Confirmation - #${orderNumber}`,
@@ -231,6 +231,7 @@ exports.sendOrderConfirmation = async (orderData) => {
       `
     });
 
+    if (error) throw new Error(error.message || 'Email was rejected');
     console.log('✅ Order confirmation email sent:', data.id);
     return { success: true, messageId: data.id };
   } catch (error) {
@@ -342,7 +343,7 @@ exports.sendShippedNotification = async (orderData) => {
 
     const itemsHTML = items && items.length > 0 ? generateCompactItemsHTML(items) : '';
 
-    const data = await resend.emails.send({
+    const { data, error } = await resend.emails.send({
       from: process.env.EMAIL_FROM,
       to: customerInfo.email,
       subject: `🚚 Your Order Has Shipped - #${orderNumber}`,
@@ -430,6 +431,7 @@ exports.sendShippedNotification = async (orderData) => {
       `
     });
 
+    if (error) throw new Error(error.message || 'Email was rejected');
     console.log('✅ Shipped notification sent:', data.id);
     return { success: true, messageId: data.id };
   } catch (error) {
@@ -445,7 +447,7 @@ exports.sendDeliveredNotification = async (orderData) => {
 
     const itemsHTML = items && items.length > 0 ? generateCompactItemsHTML(items) : '';
 
-    const data = await resend.emails.send({
+    const { data, error } = await resend.emails.send({
       from: process.env.EMAIL_FROM,
       to: customerInfo.email,
       subject: `✅ Order Delivered - #${orderNumber}`,
@@ -540,6 +542,7 @@ exports.sendDeliveredNotification = async (orderData) => {
       `
     });
 
+    if (error) throw new Error(error.message || 'Email was rejected');
     console.log('✅ Delivered notification sent:', data.id);
     return { success: true, messageId: data.id };
   } catch (error) {
@@ -555,7 +558,7 @@ exports.sendCancelledNotification = async (orderData) => {
 
     const itemsHTML = items && items.length > 0 ? generateCompactItemsHTML(items) : '';
 
-    const data = await resend.emails.send({
+    const { data, error } = await resend.emails.send({
       from: process.env.EMAIL_FROM,
       to: customerInfo.email,
       subject: `❌ Order Cancelled - #${orderNumber}`,
@@ -633,6 +636,7 @@ exports.sendCancelledNotification = async (orderData) => {
       `
     });
 
+    if (error) throw new Error(error.message || 'Email was rejected');
     console.log('✅ Cancelled notification sent:', data.id);
     return { success: true, messageId: data.id };
   } catch (error) {
