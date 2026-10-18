@@ -1,4 +1,5 @@
 const { checkoutError } = require('./orderPricing');
+const { queueOrderNotification, supersedeNotifications } = require('./orderNotifications');
 
 function validatePayment(order, payment) {
   if (!order) throw checkoutError('Order not found', 404);
@@ -80,6 +81,8 @@ function createPaymentProcessor({ Order, Product, runTransaction }) {
       order.stockDeducted = !reviewReason;
       order.paymentReviewReason = reviewReason;
       if (!reviewReason) order.status = 'processing';
+      supersedeNotifications(order, ['order_confirmation']);
+      queueOrderNotification(order, reviewReason ? 'payment_review' : 'payment_confirmation');
       await order.save({ session });
       return { order, newlyPaid: true };
     });

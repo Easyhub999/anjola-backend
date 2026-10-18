@@ -74,6 +74,7 @@ function database(initialOrder = order(), initialProducts = [product()]) {
   let state = { order: structuredClone(initialOrder), products: structuredClone(initialProducts) };
   let queue = Promise.resolve();
   let failSave = false;
+  let failCommit = false;
   let writes = 0;
   const query = get => ({ session: async session => get(session) });
   const document = (value, session, isProduct) => {
@@ -96,6 +97,7 @@ function database(initialOrder = order(), initialProducts = [product()]) {
       const result = queue.then(async () => {
         const session = structuredClone(state);
         const value = await work(session);
+        if (failCommit) { failCommit = false; throw new Error('Simulated transaction commit failure'); }
         state = session;
         return value;
       });
@@ -104,7 +106,7 @@ function database(initialOrder = order(), initialProducts = [product()]) {
     }
   };
   return { deps, process: createPaymentProcessor(deps), state: () => state, writes: () => writes,
-    failNextSave: () => { failSave = true; } };
+    failNextSave: () => { failSave = true; }, failNextCommit: () => { failCommit = true; } };
 }
 
 test('underpayment, overpayment, currency, reference and customer mismatches do not fulfill', async () => {
@@ -202,6 +204,9 @@ test('parallel webhook and callback processing only fulfill once', async () => {
   assert.equal(db.writes(), 1);
   assert.equal(db.state().products[0].quantity, 8);
   assert.equal(db.state().order.paymentStatus, 'paid');
+  assert.equal(db.state().order.notifications.length, 1);
+  assert.equal(db.state().order.notifications[0].type, 'payment_confirmation');
+  assert.equal(db.state().order.notifications[0].status, 'pending');
 });
 
 test('repeat verification preserves shipped status and stock', async () => {
@@ -216,8 +221,23 @@ test('stock failure rolls back payment and can be retried safely', async () => {
   await assert.rejects(db.process(payment()), /stock write failure/);
   assert.equal(db.state().order.paymentStatus, 'pending');
   assert.equal(db.state().products[0].quantity, 10);
+  assert.equal(db.state().order.notifications, undefined);
   await db.process(payment());
   assert.equal(db.state().products[0].quantity, 8);
+  assert.equal(db.state().order.notifications.length, 1);
+});
+
+test('a failed transaction commit rolls back payment, stock and its queued email together', async () => {
+  const db = database();
+  const before = structuredClone(db.state());
+  db.failNextCommit();
+  await assert.rejects(db.process(payment()), /transaction commit failure/);
+  assert.deepEqual(db.state(), before);
+  await db.process(payment());
+  assert.equal(db.state().order.paymentStatus, 'paid');
+  assert.equal(db.state().products[0].quantity, 8);
+  assert.equal(db.state().order.notifications.length, 1);
+  assert.equal(db.state().order.notifications[0].type, 'payment_confirmation');
 });
 
 test('color stock is deducted and included in persistence', async () => {
@@ -237,6 +257,9 @@ test('stock shortage records the payment for review without partial stock deduct
   assert.equal(db.state().products[0].quantity, 10);
   assert.equal(db.writes(), 0);
   assert.equal((await db.process(payment())).newlyPaid, false);
+  assert.equal(db.state().order.notifications.length, 1);
+  assert.equal(db.state().order.notifications[0].type, 'payment_review');
+  assert.equal(db.state().order.notifications[0].status, 'pending');
 });
 
 test('late payment on a cancelled order is recorded for review, not shipped', async () => {
@@ -305,9 +328,37 @@ test('webhook signs raw bytes and shares processing with the verification callba
     c.handlers.verifyPaymentHandler({ params: { reference: 'anj-test' } }, callback)
   ]);
   assert.equal(webhook.code, 200); assert.equal(callback.code, 200);
-  assert.equal(c.emails(), 1); assert.equal(c.db.writes(), 1);
+  assert.equal(c.emails(), 0); assert.equal(c.db.writes(), 1);
+  assert.equal(c.db.state().order.notifications.length, 1);
+  assert.equal(c.db.state().order.notifications[0].type, 'payment_confirmation');
+  assert.equal(c.db.state().order.notifications[0].status, 'pending');
   assert.equal(callback.body.data.amount, 720000);
   assert.equal(callback.body.data.customer, undefined);
+  const originalJobId = c.db.state().order.notifications[0].id;
+  await c.handlers.paystackWebhook({ body, rawBody, headers: { 'x-paystack-signature': signature } }, response());
+  assert.equal(c.db.state().order.notifications.length, 1);
+  assert.equal(c.db.state().order.notifications[0].id, originalJobId);
+});
+
+test('concurrent callback and webhook queue exactly one payment-review receipt when stock is unavailable', async () => {
+  const initial = order(); initial.items[0].quantity = 11;
+  const c = controller({}, initial);
+  const body = { event: 'charge.success', data: payment() };
+  const rawBody = Buffer.from(JSON.stringify(body));
+  const signature = crypto.createHmac('sha512', 'test-secret').update(rawBody).digest('hex');
+  const callback = response(), webhook = response();
+  await Promise.all([
+    c.handlers.verifyPaymentHandler({ params: { reference: 'anj-test' } }, callback),
+    c.handlers.paystackWebhook({ body, rawBody, headers: { 'x-paystack-signature': signature } }, webhook)
+  ]);
+  assert.equal(callback.code, 200); assert.equal(webhook.code, 200);
+  assert.equal(callback.body.data.needsReview, true);
+  assert.equal(c.db.state().products[0].quantity, 10);
+  assert.equal(c.db.state().order.notifications.length, 1);
+  assert.equal(c.db.state().order.notifications[0].type, 'payment_review');
+  assert.equal(c.db.state().order.notifications[0].status, 'pending');
+  assert.equal(c.db.state().order.notifications[0].payload.paymentStatus, 'paid');
+  assert.equal(c.emails(), 0);
 });
 
 for (const sparseWebhook of [false, true]) {
@@ -327,7 +378,9 @@ test(`signed customer-fee webhook (${sparseWebhook ? 'enriched' : 'complete'}) a
     c.handlers.verifyPaymentHandler({ params: { reference: verified.reference } }, callback)
   ]);
   assert.equal(webhook.code, 200); assert.equal(callback.code, 200);
-  assert.equal(c.emails(), 1); assert.equal(c.db.writes(), 1);
+  assert.equal(c.emails(), 0); assert.equal(c.db.writes(), 1);
+  assert.equal(c.db.state().order.notifications.length, 1);
+  assert.equal(c.db.state().order.notifications[0].type, 'payment_confirmation');
   assert.equal(c.db.state().products[0].quantity, 9);
   assert.equal(callback.body.data.amount, 152285);
   assert.equal(callback.body.data.needsReview, false);
@@ -393,6 +446,8 @@ test('concurrent cancellations restore paid stock exactly once', async () => {
   assert.equal(db.state().order.stockDeducted, false);
   assert.equal(db.state().order.status, 'cancelled');
   assert.equal(db.writes(), 1);
+  assert.equal(db.state().order.notifications.length, 1);
+  assert.equal(db.state().order.notifications[0].type, 'cancelled');
 });
 
 test('cancelling an unpaid or stock-review order never creates inventory', async () => {
@@ -508,28 +563,54 @@ test('shipping saves tracking, corrections persist, and repeats send no new noti
   const update = createOrderStatusUpdater(db.deps);
   await update(orderId, 'shipped', ' TRACK-123 ');
   assert.equal(db.state().order.trackingNumber, 'TRACK-123');
+  assert.equal(db.state().order.notifications.length, 1);
+  assert.equal(db.state().order.notifications[0].payload.trackingNumber, 'TRACK-123');
   assert.equal((await update(orderId, 'shipped', 'TRACK-123')).changed, false);
+  assert.equal(db.state().order.notifications.length, 1);
   assert.equal((await update(orderId, 'shipped', 'TRACK-456')).changed, true);
   assert.equal(db.state().order.trackingNumber, 'TRACK-456');
+  assert.equal(db.state().order.notifications.length, 2);
+  assert.equal(db.state().order.notifications[0].status, 'skipped');
+  assert.equal(db.state().order.notifications[1].status, 'pending');
+  assert.equal(db.state().order.notifications[1].payload.trackingNumber, 'TRACK-456');
   await assert.rejects(update(orderId, 'shipped', 'x'.repeat(201)), /Invalid tracking/);
   await assert.rejects(update(orderId, 'shipped', '<b>bad</b>'), /Invalid tracking/);
   assert.equal(db.writes(), 0);
 });
 
-test('shipping notification receives the saved tracking number', async () => {
+test('shipping persists one notification with saved tracking and exposes a safe admin summary', async () => {
   const db = database({ ...order(), paymentStatus: 'paid', status: 'processing' });
-  const notifications = [];
+  let emailCalls = 0;
   const c = controller({
     '../models/Order': db.deps.Order, '../models/Product': db.deps.Product,
     mongoose: { connection: { transaction: db.deps.runTransaction } },
-    '../services/emailService': { sendShippedNotification: async value => notifications.push(value.trackingNumber) }
+    '../services/emailService': { sendShippedNotification: async () => { emailCalls++; } }
   });
   for (let i = 0; i < 2; i++) {
     const res = response();
     await c.handlers.updateOrderStatus({ params: { id: orderId }, body: { status: 'shipped', trackingNumber: 'SHIP-123' } }, res);
     assert.equal(res.code, 200);
+    assert.equal(res.body.data.notifications.length, 1);
+    assert.equal(res.body.data.notifications[0].status, 'pending');
+    assert.equal(res.body.data.notifications[0].payload, undefined);
+    assert.equal(res.body.data.notifications[0].idempotencyKey, undefined);
   }
-  assert.deepEqual(notifications, ['SHIP-123']);
+  assert.equal(emailCalls, 0);
+  assert.equal(db.state().order.notifications.length, 1);
+  assert.equal(db.state().order.notifications[0].type, 'shipped');
+  assert.equal(db.state().order.notifications[0].payload.trackingNumber, 'SHIP-123');
+});
+
+test('failed shipping commit cannot leave a notification for an uncommitted status', async () => {
+  const db = database({ ...order(), paymentStatus: 'paid', status: 'processing' });
+  const before = structuredClone(db.state());
+  const update = createOrderStatusUpdater(db.deps);
+  db.failNextCommit();
+  await assert.rejects(update(orderId, 'shipped', 'TRACK-123'), /transaction commit failure/);
+  assert.deepEqual(db.state(), before);
+  await update(orderId, 'shipped', 'TRACK-123');
+  assert.equal(db.state().order.status, 'shipped');
+  assert.equal(db.state().order.notifications.length, 1);
 });
 
 test('packs reserve pieces across duplicate lines and reject insufficient color pieces', async () => {
@@ -678,39 +759,47 @@ test('receipt emails list saved packaging fees and never infer them for old gift
   }
 });
 
-test('checkout sends the saved order confirmation without delaying the response', async () => {
-  let emailed, finishEmail;
-  const saved = order();
+test('checkout saves the order and confirmation together before responding without exposing the outbox', async () => {
+  let created, finishSave, emailCalls = 0;
+  const saved = new Promise(resolve => { finishSave = resolve; });
   const c = controller({
-    '../models/Order': { create: async () => saved },
-    '../services/orderPricing': { priceOrder: async () => saved },
-    '../services/emailService': { sendOrderConfirmation: async value => {
-      emailed = value;
-      return new Promise(resolve => { finishEmail = resolve; });
-    } }
+    '../models/Order': { create: async value => { created = value; await saved; return value; } },
+    '../services/orderPricing': { priceOrder: async () => ({ ...order(), paymentAuthorizationUrl: 'private-checkout-url' }) },
+    '../services/emailService': { sendOrderConfirmation: async () => { emailCalls++; } }
   });
   const res = response();
   const work = c.handlers.createOrder({ body: request() }, res);
   await new Promise(setImmediate);
-  assert.equal(res.code, 201);
-  assert.equal(res.body.data, saved);
-  assert.equal(emailed, saved);
-  finishEmail({ success: false, error: 'Provider unavailable' });
+  assert.equal(res.body, null);
+  assert.equal(created.notifications.length, 1);
+  assert.equal(created.notifications[0].type, 'order_confirmation');
+  assert.equal(created.notifications[0].status, 'pending');
+  assert.equal(created.notifications[0].payload.orderNumber, created.orderNumber);
+  assert.equal(created.notifications[0].payload.customerInfo.email, customer().email);
+  assert.equal(emailCalls, 0);
+  finishSave();
   await work;
   assert.equal(res.code, 201);
   assert.equal(res.body.success, true);
+  assert.equal(res.body.data.orderNumber, created.orderNumber);
+  assert.equal(res.body.data.notifications, undefined);
+  assert.equal(res.body.data.paymentAuthorizationUrl, undefined);
+  assert.equal(emailCalls, 0);
 });
 
-test('checkout email exceptions do not turn a saved order into a failed checkout', async () => {
+test('checkout never invokes the provider and leaves its persisted email pending for the worker', async () => {
+  let saved, emailCalls = 0;
   const c = controller({
-    '../models/Order': { create: async () => order() },
+    '../models/Order': { create: async value => { saved = value; return value; } },
     '../services/orderPricing': { priceOrder: async () => order() },
-    '../services/emailService': { sendOrderConfirmation: async () => { throw new Error('Network error'); } }
+    '../services/emailService': { sendOrderConfirmation: async () => { emailCalls++; throw new Error('Network error'); } }
   });
   const res = response();
   await c.handlers.createOrder({ body: request() }, res);
   assert.equal(res.code, 201);
   assert.equal(res.body.success, true);
+  assert.equal(saved.notifications[0].status, 'pending');
+  assert.equal(emailCalls, 0);
 });
 
 test('failed order save never sends a confirmation', async () => {
@@ -772,6 +861,9 @@ test('recording manual payment twice deducts colored pack stock exactly once', a
   assert.equal(db.state().order.status, 'processing');
   assert.equal(db.state().order.paymentMethod, 'cash');
   assert(db.state().order.paidAt);
+  assert.equal(db.state().order.notifications.length, 1);
+  assert.equal(db.state().order.notifications[0].type, 'payment_confirmation');
+  assert.equal(db.state().order.notifications[0].status, 'skipped');
 });
 
 test('manual payment rejects website, cancelled and ambiguous legacy inventory orders', async () => {
@@ -812,6 +904,10 @@ test('manual order creation persists source and notes, with no email required', 
   assert.equal(saved.internalNotes, 'Call before delivery');
   assert.equal(saved.stockDeducted, false);
   assert.equal(saved.sendCustomerEmail, false);
+  assert.equal(saved.notifications.length, 1);
+  assert.equal(saved.notifications[0].status, 'skipped');
+  assert.match(saved.notifications[0].skipReason, /email address/);
+  assert.equal(res.body.emailConfirmation.skipped, true);
 });
 
 test('manual creation rejects invalid payment method, source and email selection', async () => {
@@ -825,13 +921,21 @@ test('manual creation rejects invalid payment method, source and email selection
   }
 });
 
-test('manual email exceptions do not report a saved order as failed', async () => {
+test('manual orders queue opted-in emails with the order and report queued status to the admin', async () => {
+  let saved, emailCalls = 0;
   const c = controller({
-    '../models/Order': { create: async ([value]) => [value] },
-    '../services/emailService': { sendOrderConfirmation: async () => { throw new Error('Network unavailable'); } }
+    '../models/Order': { create: async ([value]) => { saved = value; return [value]; } },
+    '../services/emailService': { sendOrderConfirmation: async () => { emailCalls++; throw new Error('Network unavailable'); } }
   });
   const res = response();
   await c.handlers.createManualOrder({ body: { ...request(), sendCustomerEmail: true } }, res);
   assert.equal(res.code, 201);
-  assert.equal(res.body.emailConfirmation.success, false);
+  assert.equal(res.body.emailConfirmation.success, true);
+  assert.equal(res.body.emailConfirmation.queued, true);
+  assert.equal(res.body.emailConfirmation.skipped, false);
+  assert.equal(saved.notifications.length, 1);
+  assert.equal(saved.notifications[0].type, 'order_confirmation');
+  assert.equal(saved.notifications[0].status, 'pending');
+  assert.equal(res.body.data.notifications[0].payload, undefined);
+  assert.equal(emailCalls, 0);
 });

@@ -1,4 +1,5 @@
 const { checkoutError } = require('./orderPricing');
+const { queueOrderNotification, supersedeNotifications } = require('./orderNotifications');
 
 // Caller owns the transaction, so every product and the order commit together.
 async function changeStock(items, direction, Product, session) {
@@ -55,6 +56,8 @@ function createOrderStatusUpdater({ Order, Product, runTransaction }) {
       if (order.status === status) {
         if (status === 'shipped' && tracking && tracking !== order.trackingNumber) {
           order.trackingNumber = tracking;
+          supersedeNotifications(order, ['shipped']);
+          queueOrderNotification(order, 'shipped');
           await order.save({ session });
           return { order, changed: true };
         }
@@ -75,6 +78,10 @@ function createOrderStatusUpdater({ Order, Product, runTransaction }) {
       }
       order.status = status;
       if (trackingNumber) order.trackingNumber = trackingNumber.trim();
+      if (['shipped', 'delivered', 'cancelled'].includes(status)) {
+        supersedeNotifications(order, status === 'shipped' ? ['order_confirmation'] : ['order_confirmation', 'shipped']);
+        queueOrderNotification(order, status);
+      }
       await order.save({ session });
       return { order, changed: true };
     });

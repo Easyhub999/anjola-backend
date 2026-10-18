@@ -1,13 +1,7 @@
 const Order = require('../models/Order');
 const Product = require('../models/Product');
 const { initializePayment, verifyPayment } = require('../services/paystackService');
-const { 
-  sendOrderConfirmation,
-  sendPaymentConfirmation,
-  sendShippedNotification,
-  sendDeliveredNotification,
-  sendCancelledNotification
-} = require('../services/emailService');
+const { queueOrderNotification, orderView } = require('../services/orderNotifications');
 const crypto = require('crypto');
 const { paymentDetails, createManualPaymentRecorder } = require('../services/manualPayment');
 const mongoose = require('mongoose');
@@ -22,20 +16,6 @@ const processPayment = createPaymentProcessor({
   runTransaction: work => mongoose.connection.transaction(work)
 });
 
-const sendPaymentReceipt = async ({ order, newlyPaid }) => {
-  if (!newlyPaid || (order.isManualOrder && !order.sendCustomerEmail)) return;
-  if (order.paymentReviewReason) {
-    console.error('Payment requires manual review:', order.orderNumber, order.paymentReviewReason);
-    return;
-  }
-  try {
-    const result = await sendPaymentConfirmation(order);
-    if (!result?.success) console.error('Payment email failed for order:', order.orderNumber);
-  } catch (error) {
-    console.error('Payment email failed for order:', order.orderNumber);
-  }
-};
-
 const paymentError = (res, error) => res.status(error.statusCode || 500).json({
   success: false,
   message: error.statusCode ? error.message : 'Unable to process payment. Please try again or contact support.'
@@ -45,21 +25,16 @@ const paymentError = (res, error) => res.status(error.statusCode || 500).json({
 exports.createOrder = async (req, res) => {
   try {
     const priced = await priceOrder(req.body, id => Product.findById(id));
-    const order = await Order.create({
+    const draft = {
       ...priced,
       user: req.user ? req.user._id : null,
       orderNumber: `ANJ${Date.now()}-${crypto.randomBytes(4).toString('hex')}`,
       paymentReference: `anj-${crypto.randomUUID()}`,
       status: 'pending', paymentStatus: 'pending', stockDeducted: false
-    });
-    res.status(201).json({ success: true, data: order });
-    // Send only after the order is saved; email failure must not undo checkout.
-    try {
-      const result = await sendOrderConfirmation(order);
-      if (!result?.success) console.error('Order confirmation failed:', order.orderNumber, result?.error);
-    } catch (error) {
-      console.error('Order confirmation failed:', order.orderNumber, error.message);
-    }
+    };
+    queueOrderNotification(draft, 'order_confirmation');
+    const order = await Order.create(draft);
+    res.status(201).json({ success: true, data: orderView(order) });
   } catch (error) {
     console.error('Create order error:', error.message);
     paymentError(res, error);
@@ -106,8 +81,7 @@ exports.verifyPaymentHandler = async (req, res) => {
       currency: response.data.currency,
       needsReview: Boolean(result.order.paymentReviewReason)
     } });
-    // Payment has committed. Receipt delivery must not delay customer confirmation.
-    await sendPaymentReceipt(result);
+    // The payment and its email task have committed together. A worker sends it.
   } catch (error) {
     console.error('Payment verification error:', error.message);
     paymentError(res, error);
@@ -123,7 +97,6 @@ exports.paystackWebhook = async (req, res) => {
     }
     const hash = crypto.createHmac('sha512', process.env.PAYSTACK_SECRET_KEY).update(req.rawBody).digest();
     if (!crypto.timingSafeEqual(hash, Buffer.from(signature, 'hex'))) return res.sendStatus(401);
-    let result;
     if (req.body.event === 'charge.success') {
       let payment = req.body.data;
       // Older webhook payloads can omit the original requested amount. Obtain it
@@ -136,10 +109,9 @@ exports.paystackWebhook = async (req, res) => {
         if (response?.status !== true || response.data?.reference !== payment.reference) throw checkoutError('Payment verification failed');
         payment = response.data;
       }
-      result = await processPayment(payment);
+      await processPayment(payment);
     }
     res.sendStatus(200);
-    if (result) await sendPaymentReceipt(result);
   } catch (error) {
     console.error('Payment webhook error:', error.message);
     res.sendStatus(error.statusCode || 500);
@@ -152,6 +124,7 @@ exports.paystackWebhook = async (req, res) => {
 exports.getAllOrders = async (req, res) => {
   try {
     const orders = await Order.find()
+      .select('-notifications.payload -notifications.renderedMessage -notifications.leaseToken -notifications.idempotencyKey')
       .populate('user', 'name email')
       .populate('items.product')
       .sort({ createdAt: -1 });
@@ -159,7 +132,11 @@ exports.getAllOrders = async (req, res) => {
     res.json({
       success: true,
       count: orders.length,
-      data: orders
+      notificationHealth: {
+        sendingConfigured: Boolean(process.env.RESEND_API_KEY && process.env.EMAIL_FROM),
+        deliveryTrackingConfigured: Boolean(process.env.RESEND_WEBHOOK_SECRET)
+      },
+      data: orders.map(order => orderView(order, true))
     });
   } catch (error) {
     console.error('Get orders error:', error);
@@ -173,13 +150,14 @@ exports.getAllOrders = async (req, res) => {
 exports.getMyOrders = async (req, res) => {
   try {
     const orders = await Order.find({ user: req.user._id })
+      .select('-notifications')
       .populate('items.product')
       .sort({ createdAt: -1 });
     
     res.json({
       success: true,
       count: orders.length,
-      data: orders
+      data: orders.map(order => orderView(order))
     });
   } catch (error) {
     console.error('Get my orders error:', error);
@@ -191,22 +169,8 @@ exports.getMyOrders = async (req, res) => {
 exports.updateOrderStatus = async (req, res) => {
   try {
     const { status, trackingNumber } = req.body;
-    const { order, changed } = await updateStatus(req.params.id, status, trackingNumber);
-    if (changed) {
-      try {
-        if (status === 'shipped') await sendShippedNotification(order);
-        else if (status === 'delivered') await sendDeliveredNotification(order);
-        else if (status === 'cancelled') await sendCancelledNotification({
-          isManualOrder: order.isManualOrder, sendCustomerEmail: order.sendCustomerEmail,
-          customerInfo: order.customerInfo, orderNumber: order.orderNumber,
-          items: order.items, totalAmount: order.totalAmount,
-          refundInfo: order.paymentStatus === 'paid'
-            ? 'Please contact us to confirm your refund arrangements. Cancellation does not automatically issue a refund.'
-            : undefined
-        });
-      } catch (error) { console.error('Order notification failed:', order.orderNumber); }
-    }
-    res.json({ success: true, data: order });
+    const { order } = await updateStatus(req.params.id, status, trackingNumber);
+    res.json({ success: true, data: orderView(order, true) });
   } catch (error) {
     res.status(error.statusCode || 500).json({ success: false,
       message: error.statusCode ? error.message : 'Unable to update order. No partial inventory update was committed.' });
@@ -234,26 +198,25 @@ exports.createManualOrder = async (req, res) => {
       if (!Array.isArray(items) || !items.length) throw checkoutError('Please add at least one product');
       const initialStatus = status || (paymentStatus === 'paid' ? 'processing' : 'pending');
       const paid = paymentStatus === 'paid';
-      if (initialStatus === 'cancelled' || (!paid && initialStatus !== 'pending')) {
-        throw checkoutError('Create unpaid orders as pending, and cancel existing orders through order management');
+      if (initialStatus !== (paid ? 'processing' : 'pending')) {
+        throw checkoutError('Create unpaid orders as pending and paid orders as processing. Update fulfilment from the order details.');
       }
       const priced = await priceOrder({ customerInfo, items, totalAmount }, id => Product.findById(id).session(session), true);
-      const [created] = await Order.create([{
+      const draft = {
         user: null, orderNumber, customerInfo: priced.customerInfo, items: priced.items, totalAmount: priced.totalAmount,
         paymentStatus: paymentStatus || 'pending', status: initialStatus,
         isManualOrder: true, stockDeducted: paid, orderSource, internalNotes: internalNotes.trim(),
         ...details, paidAt: paid ? new Date() : undefined, sendCustomerEmail: req.body.sendCustomerEmail === true
-      }], { session });
+      };
+      queueOrderNotification(draft, paid ? 'payment_confirmation' : 'order_confirmation');
+      const [created] = await Order.create([draft], { session });
       if (paid) await changeStock(created.items, -1, Product, session);
       return created;
     });
 
-    let emailConfirmation;
-    if (order.sendCustomerEmail) {
-      try { emailConfirmation = await (order.paymentStatus === 'paid' ? sendPaymentConfirmation(order) : sendOrderConfirmation(order)); }
-      catch (error) { emailConfirmation = { success: false }; console.error('Manual order email failed:', order.orderNumber); }
-    }
-    res.status(201).json({ success: true, data: order, emailConfirmation });
+    const emailStatus = order.notifications?.[0]?.status;
+    res.status(201).json({ success: true, data: orderView(order, true),
+      emailConfirmation: { success: true, queued: emailStatus === 'pending', skipped: emailStatus === 'skipped' } });
   } catch (error) {
     console.error('Create manual order error:', error);
     res.status(error.statusCode || 500).json({ 
@@ -267,8 +230,7 @@ exports.createManualOrder = async (req, res) => {
 exports.recordManualPayment = async (req, res) => {
   try {
     const result = await recordManualPayment(req.params.id, req.body);
-    res.json({ success: true, data: result.order });
-    await sendPaymentReceipt(result);
+    res.json({ success: true, data: orderView(result.order, true) });
   } catch (error) {
     paymentError(res, error);
   }

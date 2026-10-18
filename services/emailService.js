@@ -1,7 +1,66 @@
 const { Resend } = require('resend');
 
-// Initialize Resend with API key
-const resend = new Resend(process.env.RESEND_API_KEY);
+// Construct lazily: missing provider configuration must not stop orders being saved.
+let resend;
+const getResend = () => resend || (resend = new Resend(process.env.RESEND_API_KEY));
+const REQUEST_TIMEOUT_MS = 15000;
+
+const retryDelay = headers => {
+  const value = headers?.['retry-after'] ?? headers?.get?.('retry-after');
+  if (value === undefined || value === null || value === '') return undefined;
+  const seconds = Number(value);
+  if (Number.isFinite(seconds) && seconds >= 0) return Math.ceil(seconds * 1000);
+  const date = Date.parse(value);
+  return Number.isFinite(date) ? Math.max(0, date - Date.now()) : undefined;
+};
+
+const emailFailure = (error, { transport = false, headers } = {}) => {
+  const status = Number(error?.statusCode || error?.status) || undefined;
+  let errorCode = error?.code || error?.name || 'email_error';
+  const message = error?.message || 'Email could not be sent';
+  if (/missing api key/i.test(message)) errorCode = 'missing_api_key';
+  const permanentCodes = new Set(['missing_api_key', 'invalid_api_key', 'restricted_api_key',
+    'suspended_api_key', 'invalid_from_address', 'validation_error', 'invalid_parameter',
+    'missing_required_field', 'invalid_idempotency_key', 'invalid_idempotent_request']);
+  const networkFailure = transport && !status && !permanentCodes.has(errorCode);
+  const retryable = !permanentCodes.has(errorCode) && (networkFailure || status === 408 ||
+    status === 429 || status >= 500 || ['concurrent_idempotent_requests', 'resource_locked'].includes(errorCode));
+  return {
+    success: false,
+    error: message,
+    errorCode,
+    retryable: Boolean(retryable),
+    // Unknown acceptance requires the same idempotency key, never a blind new send.
+    ambiguous: Boolean(networkFailure || status === 408 || status >= 500 ||
+      ['concurrent_idempotent_requests', 'invalid_idempotent_request'].includes(errorCode)),
+    retryAfterMs: retryDelay(headers)
+  };
+};
+
+const sendEmail = async (payload, options = {}) => {
+  try {
+    if (options.prepareOnly) return { success: true, message: payload };
+    // resend 6.x passes these options through to fetch, including AbortSignal.
+    const requestOptions = { idempotencyKey: options.idempotencyKey };
+    if (typeof AbortSignal !== 'undefined' && typeof AbortSignal.timeout === 'function') {
+      requestOptions.signal = AbortSignal.timeout(REQUEST_TIMEOUT_MS);
+    }
+    const result = await getResend().emails.send(payload, requestOptions);
+    if (result?.error) return emailFailure(result.error, { transport: true, headers: result.headers });
+    if (!result?.data?.id) return emailFailure({
+      code: 'missing_message_id', message: 'Email provider returned no message ID; acceptance is unknown'
+    }, { transport: true });
+    return { success: true, messageId: result.data.id };
+  } catch (error) {
+    return emailFailure(error, { transport: true });
+  }
+};
+
+const escapeHTML = value => String(value ?? '').replace(/[&<>"']/g, character => ({
+  '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+})[character]);
+const notificationYear = orderData => orderData.notificationYear ||
+  new Date(orderData.createdAt || Date.now()).getFullYear();
 
 // Only describe saved charges; older gift orders must not inherit today's fee.
 const generateChargeRows = (customerInfo, labelColumns = 2) => {
@@ -111,14 +170,14 @@ const generateCompactItemsHTML = (items) => {
 };
 
 // Send order confirmation email
-exports.sendOrderConfirmation = async (orderData) => {
+exports.sendOrderConfirmation = async (orderData, options = {}) => {
   try {
     if (orderData.isManualOrder && (!orderData.customerInfo?.email || !orderData.sendCustomerEmail)) return { success: true, skipped: true };
     const { customerInfo, items, totalAmount, orderNumber } = orderData;
 
     const itemsHTML = generateItemsHTML(items);
 
-    const { data, error } = await resend.emails.send({
+    return await sendEmail({
       from: process.env.EMAIL_FROM,
       to: customerInfo.email,
       subject: `✨ Order Confirmation - #${orderNumber}`,
@@ -224,32 +283,28 @@ exports.sendOrderConfirmation = async (orderData) => {
             <div class="footer">
               <p><strong>Anjola Aesthetics Ng</strong></p>
               <p>anjolaaestheticsng@gmail.com</p>
-              <p>&copy; ${new Date().getFullYear()} Anjola Aesthetics Ng. All rights reserved.</p>
+              <p>&copy; ${notificationYear(orderData)} Anjola Aesthetics Ng. All rights reserved.</p>
             </div>
           </div>
         </body>
         </html>
       `
-    });
-
-    if (error) throw new Error(error.message || 'Email was rejected');
-    console.log('✅ Order confirmation email sent:', data.id);
-    return { success: true, messageId: data.id };
+    }, options);
   } catch (error) {
     console.error('❌ Order email error:', error);
-    return { success: false, error: error.message };
+    return emailFailure(error);
   }
 };
 
 // Send payment confirmation email
-exports.sendPaymentConfirmation = async (orderData) => {
+exports.sendPaymentConfirmation = async (orderData, options = {}) => {
   try {
     if (orderData.isManualOrder && (!orderData.customerInfo?.email || !orderData.sendCustomerEmail)) return { success: true, skipped: true };
     const { customerInfo, totalAmount, orderNumber, paymentReference, items } = orderData;
 
     const itemsHTML = items ? generateCompactItemsHTML(items) : '';
 
-    const { data, error } = await resend.emails.send({
+    return await sendEmail({
       from: process.env.EMAIL_FROM,
       to: customerInfo.email,
       subject: `💳 Payment Confirmed - Order #${orderNumber}`,
@@ -282,7 +337,7 @@ exports.sendPaymentConfirmation = async (orderData) => {
             
             <div class="content">
               <p>Dear <strong>${customerInfo.fullName}</strong>,</p>
-              <p>Great news! Your payment has been confirmed and your order is now being processed.</p>
+              <p>Your payment has been confirmed. Please keep this email as your payment receipt.</p>
               
               <div class="amount-box">
                 <div style="font-size: 14px; opacity: 0.9; margin-bottom: 10px;">Amount Paid</div>
@@ -292,7 +347,7 @@ exports.sendPaymentConfirmation = async (orderData) => {
               <div class="info-box">
                 <p><strong>Order Number:</strong> #${orderNumber}</p>
                 <p><strong>Payment Reference:</strong> ${paymentReference}</p>
-                <p><strong>Status:</strong> <span style="color: #28a745;">✓ Paid & Processing</span></p>
+                <p><strong>Payment status:</strong> <span style="color: #28a745;">✓ Paid</span></p>
               </div>
               
               ${items && items.length > 0 ? `
@@ -312,8 +367,8 @@ exports.sendPaymentConfirmation = async (orderData) => {
                 </table>
               ` : ''}
               
-              <h3 style="color: #84fab0;">🚚 What's Next?</h3>
-              <p>We'll send a shipment update when your order is dispatched, including tracking details where available. Dispatch and delivery timing depend on your selected delivery route. Contact us if you need an update for your order.</p>
+              <h3 style="color: #84fab0;">Your Order Updates</h3>
+              <p>Shipment and delivery updates are sent separately from this payment receipt. Contact us with your order number if you need an update about your order.</p>
               
               <p style="margin-top: 30px;">Thank you for choosing <strong>Anjola Aesthetics Ng</strong>! ✨</p>
             </div>
@@ -321,32 +376,28 @@ exports.sendPaymentConfirmation = async (orderData) => {
             <div class="footer">
               <p><strong>Anjola Aesthetics Ng</strong></p>
               <p>anjolaaestheticsng@gmail.com</p>
-              <p>&copy; ${new Date().getFullYear()} Anjola Aesthetics Ng. All rights reserved.</p>
+              <p>&copy; ${notificationYear(orderData)} Anjola Aesthetics Ng. All rights reserved.</p>
             </div>
           </div>
         </body>
         </html>
       `
-    });
-
-    if (error) throw new Error(error.message || 'Payment email was rejected');
-    console.log('✅ Payment confirmation email sent:', data?.id);
-    return { success: true, messageId: data?.id };
+    }, options);
   } catch (error) {
     console.error('❌ Payment email error:', error);
-    return { success: false, error: error.message };
+    return emailFailure(error);
   }
 };
 
 // Send shipped notification
-exports.sendShippedNotification = async (orderData) => {
+exports.sendShippedNotification = async (orderData, options = {}) => {
   try {
     if (orderData.isManualOrder && (!orderData.customerInfo?.email || !orderData.sendCustomerEmail)) return { success: true, skipped: true };
     const { customerInfo, orderNumber, trackingNumber, items, totalAmount } = orderData;
 
     const itemsHTML = items && items.length > 0 ? generateCompactItemsHTML(items) : '';
 
-    const { data, error } = await resend.emails.send({
+    return await sendEmail({
       from: process.env.EMAIL_FROM,
       to: customerInfo.email,
       subject: `🚚 Your Order Has Shipped - #${orderNumber}`,
@@ -426,32 +477,28 @@ exports.sendShippedNotification = async (orderData) => {
             <div class="footer">
               <p><strong>Anjola Aesthetics Ng</strong></p>
               <p>anjolaaestheticsng@gmail.com</p>
-              <p>&copy; ${new Date().getFullYear()} Anjola Aesthetics Ng. All rights reserved.</p>
+              <p>&copy; ${notificationYear(orderData)} Anjola Aesthetics Ng. All rights reserved.</p>
             </div>
           </div>
         </body>
         </html>
       `
-    });
-
-    if (error) throw new Error(error.message || 'Email was rejected');
-    console.log('✅ Shipped notification sent:', data.id);
-    return { success: true, messageId: data.id };
+    }, options);
   } catch (error) {
     console.error('❌ Shipped email error:', error);
-    return { success: false, error: error.message };
+    return emailFailure(error);
   }
 };
 
 // Send delivered notification - NOW WITH FULL ORDER DETAILS
-exports.sendDeliveredNotification = async (orderData) => {
+exports.sendDeliveredNotification = async (orderData, options = {}) => {
   try {
     if (orderData.isManualOrder && (!orderData.customerInfo?.email || !orderData.sendCustomerEmail)) return { success: true, skipped: true };
     const { customerInfo, orderNumber, items, totalAmount } = orderData;
 
     const itemsHTML = items && items.length > 0 ? generateCompactItemsHTML(items) : '';
 
-    const { data, error } = await resend.emails.send({
+    return await sendEmail({
       from: process.env.EMAIL_FROM,
       to: customerInfo.email,
       subject: `✅ Order Delivered - #${orderNumber}`,
@@ -538,32 +585,28 @@ exports.sendDeliveredNotification = async (orderData) => {
             <div class="footer">
               <p><strong>Anjola Aesthetics Ng</strong></p>
               <p>anjolaaestheticsng@gmail.com</p>
-              <p>&copy; ${new Date().getFullYear()} Anjola Aesthetics Ng. All rights reserved.</p>
+              <p>&copy; ${notificationYear(orderData)} Anjola Aesthetics Ng. All rights reserved.</p>
             </div>
           </div>
         </body>
         </html>
       `
-    });
-
-    if (error) throw new Error(error.message || 'Email was rejected');
-    console.log('✅ Delivered notification sent:', data.id);
-    return { success: true, messageId: data.id };
+    }, options);
   } catch (error) {
     console.error('❌ Delivered email error:', error);
-    return { success: false, error: error.message };
+    return emailFailure(error);
   }
 };
 
 // Send cancelled notification - NOW WITH FULL ORDER DETAILS
-exports.sendCancelledNotification = async (orderData) => {
+exports.sendCancelledNotification = async (orderData, options = {}) => {
   try {
     if (orderData.isManualOrder && (!orderData.customerInfo?.email || !orderData.sendCustomerEmail)) return { success: true, skipped: true };
     const { customerInfo, orderNumber, refundInfo, items, totalAmount } = orderData;
 
     const itemsHTML = items && items.length > 0 ? generateCompactItemsHTML(items) : '';
 
-    const { data, error } = await resend.emails.send({
+    return await sendEmail({
       from: process.env.EMAIL_FROM,
       to: customerInfo.email,
       subject: `❌ Order Cancelled - #${orderNumber}`,
@@ -633,21 +676,78 @@ exports.sendCancelledNotification = async (orderData) => {
             <div class="footer">
               <p><strong>Anjola Aesthetics Ng</strong></p>
               <p>anjolaaestheticsng@gmail.com</p>
-              <p>&copy; ${new Date().getFullYear()} Anjola Aesthetics Ng. All rights reserved.</p>
+              <p>&copy; ${notificationYear(orderData)} Anjola Aesthetics Ng. All rights reserved.</p>
             </div>
           </div>
         </body>
         </html>
       `
-    });
-
-    if (error) throw new Error(error.message || 'Email was rejected');
-    console.log('✅ Cancelled notification sent:', data.id);
-    return { success: true, messageId: data.id };
+    }, options);
   } catch (error) {
     console.error('❌ Cancelled email error:', error);
-    return { success: false, error: error.message };
+    return emailFailure(error);
   }
 };
+
+// A received payment can require review (for example, inventory or reconciliation).
+// Confirm receipt without telling the customer fulfillment has already started.
+exports.sendPaymentReviewNotification = async (orderData, options = {}) => {
+  try {
+    if (orderData.isManualOrder && (!orderData.customerInfo?.email || !orderData.sendCustomerEmail)) return { success: true, skipped: true };
+    const { customerInfo, orderNumber, totalAmount, paymentReference } = orderData;
+    return await sendEmail({
+      from: process.env.EMAIL_FROM,
+      to: customerInfo.email,
+      subject: `Payment Received — Order #${orderNumber}`,
+      html: `<!DOCTYPE html><html><head><meta charset="utf-8"></head>
+        <body style="font-family:Arial,sans-serif;line-height:1.6;color:#333;background:#f5f5f5;padding:24px;">
+          <main style="max-width:600px;margin:auto;background:#fff;padding:32px;border-radius:12px;">
+            <h1>We've received your payment</h1>
+            <p>Dear ${escapeHTML(customerInfo.fullName)},</p>
+            <p>Your payment for order <strong>#${escapeHTML(orderNumber)}</strong> has been received.</p>
+            <p><strong>Amount paid:</strong> ₦${escapeHTML(Number(totalAmount).toLocaleString('en-NG'))}</p>
+            ${paymentReference ? `<p><strong>Payment reference:</strong> ${escapeHTML(paymentReference)}</p>` : ''}
+            <p>Our team is reviewing your order before it can proceed. Please do not make another payment for this order. We will contact you with an update.</p>
+            <p>For help, contact <a href="mailto:anjolaaestheticsng@gmail.com">anjolaaestheticsng@gmail.com</a> and include your order number.</p>
+            <p>Anjola Aesthetics Ng</p>
+          </main>
+        </body></html>`
+    }, options);
+  } catch (error) {
+    return emailFailure(error);
+  }
+};
+
+// Render once and persist the complete request before sending. Idempotent retries
+// must keep the exact body even if templates or sender settings subsequently change.
+exports.prepareNotification = async (type, orderData) => {
+  const senders = {
+    order_confirmation: exports.sendOrderConfirmation,
+    payment_confirmation: exports.sendPaymentConfirmation,
+    payment_review: exports.sendPaymentReviewNotification,
+    shipped: exports.sendShippedNotification,
+    delivered: exports.sendDeliveredNotification,
+    cancelled: exports.sendCancelledNotification
+  };
+  const sender = senders[type];
+  if (!sender) return emailFailure({ code: 'invalid_notification_type', message: 'Unknown order notification type' });
+  const prepared = await sender(orderData, { prepareOnly: true });
+  if (!prepared.success || prepared.skipped) return prepared;
+  if (!prepared.message.from || typeof prepared.message.from !== 'string') {
+    return emailFailure({ code: 'missing_sender_configuration', message: 'EMAIL_FROM is not configured' });
+  }
+  const tags = [];
+  for (const [name, value] of [['notification_id', orderData.notificationId], ['order_id', orderData.orderId]]) {
+    if (value === undefined || value === null) continue;
+    if (!/^[a-zA-Z0-9_-]{1,256}$/.test(String(value))) {
+      return emailFailure({ code: 'invalid_notification_tag', message: 'Invalid order notification identifier' });
+    }
+    tags.push({ name, value: String(value) });
+  }
+  if (tags.length) prepared.message.tags = tags;
+  return prepared;
+};
+
+exports.sendPreparedEmail = (message, options = {}) => sendEmail(message, options);
 
 module.exports = exports;

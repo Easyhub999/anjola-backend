@@ -42,8 +42,35 @@ test('order creation route actually installs optional authentication before its 
   const routes = []; const optionalAuth = () => {}; const createOrder = () => {};
   const router = new Proxy({}, { get: (_, method) => (...args) => routes.push({ method, args }) });
   const context = { module: {}, require: name => name === 'express' ? { Router: () => router }
-    : name.includes('middleware') ? { optionalAuth } : { createOrder } };
+    : name.includes('middleware') ? { optionalAuth }
+      : name.includes('notificationController') ? { createNotificationController: () => ({}) }
+        : name === 'mongoose' ? { connection: {} } : { createOrder } };
   vm.runInNewContext(fs.readFileSync(require.resolve('../routes/orders'), 'utf8'), context);
   const route = routes.find(route => route.method === 'post' && route.args[0] === '/');
   assert.equal(route.args[1], optionalAuth); assert.equal(route.args[2], createOrder);
+});
+
+test('all customer notification admin routes require authentication and admin authorization', () => {
+  const routes = []; const protect = () => {}; const adminOnly = () => {};
+  const notifications = Object.fromEntries(['getNotifications', 'sendNotification', 'retryNotification', 'updatePreferences']
+    .map(name => [name, () => {}]));
+  const router = Object.fromEntries(['get', 'post', 'put', 'patch'].map(method => [method,
+    (...args) => routes.push({ method, args })]));
+  const context = { module: {}, require: name => name === 'express' ? { Router: () => router }
+    : name.includes('middleware') ? { protect, adminOnly }
+      : name.includes('notificationController') ? { createNotificationController: () => notifications }
+        : name === 'mongoose' ? { connection: {} } : {} };
+  vm.runInNewContext(fs.readFileSync(require.resolve('../routes/orders'), 'utf8'), context);
+  for (const [method, path, handler] of [
+    ['get', '/:id/notifications', 'getNotifications'],
+    ['post', '/:id/notifications', 'sendNotification'],
+    ['post', '/:id/notifications/:notificationId/retry', 'retryNotification'],
+    ['patch', '/:id/notifications/preferences', 'updatePreferences']
+  ]) {
+    const route = routes.find(value => value.method === method && value.args[0] === path);
+    assert(route, `${method} ${path}`);
+    assert.equal(route.args[1], protect);
+    assert.equal(route.args[2], adminOnly);
+    assert.equal(route.args[3], notifications[handler]);
+  }
 });

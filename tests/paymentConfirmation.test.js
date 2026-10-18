@@ -17,7 +17,7 @@ const response = () => ({ code: null, body: null, sends: 0,
   json(body) { this.code ||= 200; this.body = body; this.sends++; return this; },
   sendStatus(code) { this.code = code; this.sends++; return this; } });
 
-function harness({ verify, receipt, processPayment } = {}) {
+function harness({ verify, processPayment } = {}) {
   const verified = [], processed = [], emailed = [];
   const dependencies = {
     '../models/Order': {}, '../models/Product': {}, mongoose: { connection: {} },
@@ -34,7 +34,7 @@ function harness({ verify, receipt, processPayment } = {}) {
     '../services/orderStatus': { createOrderStatusUpdater: () => {} },
     '../services/emailService': { sendPaymentConfirmation: async order => {
       emailed.push(order);
-      return receipt ? receipt(order) : { success: true };
+      return { success: true };
     } }
   };
   const context = { exports: {}, require: name => dependencies[name] || require(name),
@@ -56,7 +56,7 @@ test('signed webhook without requested_amount processes the canonical Paystack v
   assert.equal(res.code, 200);
   assert.deepEqual(h.verified, ['anj-fee-fixture']);
   assert.deepEqual(h.processed, [canonical()]);
-  assert.equal(h.emailed.length, 1);
+  assert.equal(h.emailed.length, 0);
 });
 
 test('complete signed fee payload uses the shared processor without another network lookup', async () => {
@@ -95,23 +95,30 @@ test('signature and reference validation happen before webhook enrichment', asyn
   assert.equal(h.verified.length, 0); assert.equal(h.processed.length, 0);
 });
 
-test('customer confirmation responds after payment processing without waiting for a slow receipt', async () => {
-  const email = deferred(); const h = harness({ receipt: () => email.promise }); const res = response();
+test('customer confirmation waits for the payment and email intent commit without contacting the email provider', async () => {
+  const commit = deferred();
+  const h = harness({ processPayment: () => commit.promise }); const res = response();
   const work = h.handlers.verifyPaymentHandler({ params: { reference: 'anj-fee-fixture' } }, res);
   await new Promise(setImmediate);
-  assert.equal(h.processed.length, 1); assert.equal(h.emailed.length, 1);
+  assert.equal(h.processed.length, 1); assert.equal(h.emailed.length, 0);
+  assert.equal(res.code, null);
+  commit.resolve({ order: { paymentReviewReason: '', notifications: [{ type: 'payment_confirmation', status: 'pending' }] }, newlyPaid: true });
+  await work;
   assert.equal(res.code, 200); assert.equal(res.body.success, true);
   assert.equal(res.body.data.amount, 152285); assert.equal(res.body.data.customer, undefined);
-  email.resolve({ success: false }); await work;
+  assert.equal(res.body.data.notifications, undefined);
+  assert.equal(h.emailed.length, 0);
   assert.equal(res.sends, 1); assert.equal(res.code, 200);
 });
 
-test('webhook acknowledges committed payment without waiting for receipt delivery', async () => {
-  const email = deferred(); const h = harness({ receipt: () => email.promise }); const res = response();
+test('webhook acknowledges only after the payment and durable notification commit', async () => {
+  const commit = deferred(); const h = harness({ processPayment: () => commit.promise }); const res = response();
   const work = h.handlers.paystackWebhook(signedWebhook(canonical()), res);
   await new Promise(setImmediate);
-  assert.equal(h.processed.length, 1); assert.equal(h.emailed.length, 1); assert.equal(res.code, 200);
-  email.resolve({ success: true }); await work;
+  assert.equal(h.processed.length, 1); assert.equal(h.emailed.length, 0); assert.equal(res.code, null);
+  commit.resolve({ order: { paymentReviewReason: '', notifications: [{ type: 'payment_confirmation', status: 'pending' }] }, newlyPaid: true });
+  await work;
+  assert.equal(res.code, 200); assert.equal(h.emailed.length, 0);
   assert.equal(res.sends, 1);
 });
 

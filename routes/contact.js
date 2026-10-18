@@ -2,71 +2,13 @@ const express = require('express');
 const router = express.Router();
 const { Resend } = require('resend');
 
-const resend = new Resend(process.env.RESEND_API_KEY);
+let resend;
+const emailClient = () => {
+  if (!resend) resend = new Resend(process.env.RESEND_API_KEY);
+  return resend;
+};
 
-// TEST ENDPOINT - Add this first
-router.get('/test', async (req, res) => {
-  try {
-    console.log('=== RESEND TEST ===');
-    console.log('Resend object:', typeof resend);
-    console.log('Resend.emails:', typeof resend?.emails);
-    console.log('API Key exists:', !!process.env.RESEND_API_KEY);
-    console.log('API Key length:', process.env.RESEND_API_KEY?.length);
-    console.log('Target email:', process.env.TARGET_EMAIL);
-
-    if (!resend || !resend.emails) {
-      return res.status(500).json({ 
-        success: false, 
-        error: 'Resend client not properly initialized'
-      });
-    }
-
-    console.log('Attempting to send email...');
-
-    const result = await resend.emails.send({
-      from: "Anjola Aesthetics <contact@anjolaaestheticsng.com>",
-      to: process.env.TARGET_EMAIL,
-      subject: "🧪 Test Email from Anjola Aesthetics",
-      html: "<h1>Success!</h1><p>If you see this, Resend is working correctly.</p>"
-    });
-
-    console.log('Raw Resend result:', JSON.stringify(result, null, 2));
-
-    if (!result) {
-      return res.status(500).json({
-        success: false,
-        error: 'Resend returned null/undefined'
-      });
-    }
-
-    if (result.error) {
-      return res.status(500).json({
-        success: false,
-        error: result.error.message || 'Unknown Resend error',
-        details: result.error
-      });
-    }
-
-    res.json({ 
-      success: true, 
-      message: "Test email sent successfully!",
-      emailId: result.id || result.data?.id || 'NO_ID_RETURNED',
-      fullResult: result,
-      to: process.env.TARGET_EMAIL
-    });
-
-  } catch (error) {
-    console.error("❌ Test failed:", error);
-    res.status(500).json({ 
-      success: false, 
-      error: error.message,
-      stack: error.stack
-    });
-  }
-});
-
-// ACTUAL CONTACT FORM ENDPOINT
-// ACTUAL CONTACT FORM ENDPOINT
+// Contact emails share the transactional provider account. No public test-send route.
 router.post('/', async (req, res) => {
   try {
     const { name, email, message } = req.body;
@@ -78,10 +20,10 @@ router.post('/', async (req, res) => {
     }
 
     console.log('📧 Sending to:', process.env.TARGET_EMAIL);
-    
-    const result = await resend.emails.send({
+
+    const result = await emailClient().emails.send({
       from: "Anjola Aesthetics <contact@anjolaaestheticsng.com>",
-      to: process.env.TARGET_EMAIL, 
+      to: process.env.TARGET_EMAIL,
       replyTo: email,
       subject: `✨ New Contact Message From ${name}`,
       html: `
@@ -107,16 +49,16 @@ router.post('/', async (req, res) => {
       });
     }
 
-    res.json({ 
+    res.json({
       success: true,
-      message: "Message sent successfully", 
+      message: "Message sent successfully",
       emailId: result.id || result.data?.id || 'sent'
     });
 
   } catch (error) {
     console.error("❌ Contact form error:", error);
-    
-    res.status(500).json({ 
+
+    res.status(500).json({
       success: false,
       message: error.message || "Error sending message"
     });

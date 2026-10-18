@@ -1,5 +1,6 @@
 const { checkoutError } = require('./orderPricing');
 const { changeStock } = require('./orderStatus');
+const { queueOrderNotification, supersedeNotifications } = require('./orderNotifications');
 
 const PAYMENT_METHODS = ['bank_transfer', 'cash', 'other'];
 function paymentDetails(body) {
@@ -21,6 +22,8 @@ function createManualPaymentRecorder({ Order, Product, runTransaction }) {
       if (order.status !== 'pending' || order.stockDeducted !== false) throw checkoutError('This order needs manual inventory review', 409);
       await changeStock(order.items, -1, Product, session);
       Object.assign(order, details, { paymentStatus: 'paid', paidAt: new Date(), status: 'processing', stockDeducted: true });
+      supersedeNotifications(order, ['order_confirmation']);
+      queueOrderNotification(order, 'payment_confirmation');
       await order.save({ session });
       return { order, newlyPaid: true };
     });
