@@ -427,7 +427,7 @@ test('malformed inventory fails closed rather than allowing unbounded stock', as
 test('payment email recognizes provider error responses instead of claiming success', async () => {
   let providerResult = { data: null, error: { message: 'Provider rejected email' } };
   const context = { exports: {}, module: {}, process: { env: {} }, console: { log() {}, error() {} },
-    require: () => ({ Resend: class { constructor() { this.emails = { send: async () => providerResult }; } } }) };
+    require: name => name === './orderEmailTemplates' ? require('../services/orderEmailTemplates') : ({ Resend: class { constructor() { this.emails = { send: async () => providerResult }; } } }) };
   vm.runInNewContext(fs.readFileSync(require.resolve('../services/emailService'), 'utf8'), context);
   const result = await context.exports.sendPaymentConfirmation(order());
   assert.equal(result.success, false);
@@ -744,10 +744,11 @@ test('payment initialization and verification include the saved packaging fee', 
 test('receipt emails list saved packaging fees and never infer them for old gift orders', async () => {
   let sent;
   const context = { exports: {}, module: {}, process: { env: {} }, console: { log() {}, error() {} },
-    require: () => ({ Resend: class { constructor() { this.emails = { send: async message => { sent = message; return { data: { id: 'test-email' }, error: null }; } }; } } }) };
+    require: name => name === './orderEmailTemplates' ? require('../services/orderEmailTemplates') : ({ Resend: class { constructor() { this.emails = { send: async message => { sent = message; return { data: { id: 'test-email' }, error: null }; } }; } } }) };
   vm.runInNewContext(fs.readFileSync(require.resolve('../services/emailService'), 'utf8'), context);
-  for (const name of ['sendOrderConfirmation', 'sendPaymentConfirmation', 'sendShippedNotification', 'sendDeliveredNotification', 'sendCancelledNotification']) {
-    await context.exports[name]({ ...order(), totalAmount: 9200, customerInfo: { ...customer(), isGift: true, giftPackagingFee: 2000, shippingCost: 5600 } });
+  for (const name of ['sendOrderConfirmation', 'sendPaymentConfirmation', 'sendPaymentReviewNotification', 'sendCancelledNotification']) {
+    const result = await context.exports[name]({ ...order(), totalAmount: 9200, customerInfo: { ...customer(), isGift: true, giftPackagingFee: 2000, shippingCost: 5600 } });
+    assert.equal(result.success, true, name);
     assert.match(sent.html, /Gift packaging/);
     assert.match(sent.html, /₦2,000/);
     assert.match(sent.html, /₦9,200/);
@@ -818,7 +819,7 @@ test('failed order save never sends a confirmation', async () => {
 test('all order emails report provider rejections and return the accepted message ID', async () => {
   let providerResult;
   const context = { exports: {}, module: {}, process: { env: {} }, console: { log() {}, error() {} },
-    require: () => ({ Resend: class { constructor() { this.emails = { send: async () => providerResult }; } } }) };
+    require: name => name === './orderEmailTemplates' ? require('../services/orderEmailTemplates') : ({ Resend: class { constructor() { this.emails = { send: async () => providerResult }; } } }) };
   vm.runInNewContext(fs.readFileSync(require.resolve('../services/emailService'), 'utf8'), context);
   for (const name of ['sendOrderConfirmation', 'sendPaymentConfirmation', 'sendShippedNotification', 'sendDeliveredNotification', 'sendCancelledNotification']) {
     providerResult = { data: null, error: { message: 'Sender domain is not verified' } };

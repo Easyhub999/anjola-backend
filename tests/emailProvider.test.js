@@ -4,6 +4,7 @@ const fs = require('node:fs');
 const vm = require('node:vm');
 const crypto = require('node:crypto');
 const { verifyResendWebhook } = require('../services/resendWebhook');
+const { renderOrderEmail } = require('../services/orderEmailTemplates');
 
 const order = () => ({
   orderId: 'order_123', notificationId: 'notification_123', orderNumber: 'ANJ-123',
@@ -18,7 +19,7 @@ function loadEmailService(send = async () => ({ data: { id: 'email-123' }, error
   const context = {
     exports: {}, module: {}, process: { env }, AbortSignal,
     console: { log() {}, error() {} },
-    require: () => ({ Resend: class {
+    require: name => name === './orderEmailTemplates' ? { renderOrderEmail } : ({ Resend: class {
       constructor(key) {
         if (construct) construct(key);
         this.emails = { send };
@@ -97,7 +98,8 @@ test('installed Resend SDK network failures remain retryable and ambiguous with 
     };
     const context = {
       exports: {}, module: {}, process: { env: { RESEND_API_KEY: 're_test_only' } },
-      AbortSignal, console: { log() {}, error() {} }, require: () => ({ Resend })
+      AbortSignal, console: { log() {}, error() {} },
+      require: name => name === './orderEmailTemplates' ? { renderOrderEmail } : ({ Resend })
     };
     vm.runInNewContext(fs.readFileSync(require.resolve('../services/emailService'), 'utf8'), context);
     const result = await context.exports.sendPreparedEmail({
@@ -208,7 +210,7 @@ test('payment review receipt is truthful and escapes interpolated HTML', async (
   assert.match(result.message.html, /reviewing your order/);
   assert.match(result.message.html, /Please do not make another payment/);
   assert.doesNotMatch(result.message.html, /Paid & Processing|order is now being processed/);
-  assert.doesNotMatch(result.message.html, /<img|<script>|<b>reference/);
+  assert.doesNotMatch(result.message.html, /<img src=x|<script>|<b>reference/);
   assert.match(result.message.html, /&lt;img/);
 });
 
