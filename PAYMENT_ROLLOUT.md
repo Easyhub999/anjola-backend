@@ -18,8 +18,8 @@ This change is local until the backend and frontend are deployed. It does not mi
 3. Confirm transaction support on the target database (Atlas replica set/sharded deployment; a standalone local MongoDB server is insufficient).
 4. Before deployment, reconcile any existing unpaid orders that already have Paystack payment attempts. Legacy totals were client-controlled, so this implementation refuses to auto-fulfill legacy unpaid orders. Do not ask a charged customer to pay again: check Paystack and reconcile manually. Unpaid customers can start a fresh checkout. Existing paid orders are not modified by this rollout.
 5. Deploy backend first, then frontend. The backend accepts the current storefront's delivery labels as well as the new IDs, but older frontend carts with missing options or incorrect bundle totals will be rejected until corrected.
-6. Confirm `MONGODB_URI`, `PAYSTACK_SECRET_KEY`, `FRONTEND_URL`, `RESEND_API_KEY`, and `EMAIL_FROM` on the intended Render service. Never commit their values.
-7. Confirm Paystack's webhook points to `https://anjola-backend.onrender.com/api/orders/paystack-webhook` and the frontend uses that backend. For test deployments, use their corresponding URLs.
+6. Confirm `MONGODB_URI`, `PAYSTACK_SECRET_KEY`, `FRONTEND_URL`, `RESEND_API_KEY`, and `EMAIL_FROM` on the production Render service whose public URL is `https://anjola-backend-1.onrender.com`. Never commit their values.
+7. Confirm Paystack's webhook points to `https://anjola-backend-1.onrender.com/api/orders/paystack-webhook` and the frontend uses that backend. For test deployments, use their corresponding URLs.
 
 ## Payment return URL hotfix
 

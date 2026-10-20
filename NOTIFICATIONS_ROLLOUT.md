@@ -5,10 +5,10 @@ Order creation, payment recording, and fulfilment transitions now persist an ema
 ## Production setup
 
 1. Deploy the backend before the frontend. Keep the backend service running continuously: a sleeping Render instance cannot run scheduled retries until it wakes. Multiple backend instances are safe because each email task has an atomic lease. Existing MongoDB transaction support is still required for payment, stock, and fulfilment updates.
-2. Confirm `RESEND_API_KEY` has permission to send from the verified domain used by `EMAIL_FROM`. Configure the actual sender in Render, for example `Anjola Aesthetics <orders@anjolaaestheticsng.com>` only if that domain/address is permitted in the Resend account. Verify domain authentication and account sending capacity in Resend. Do not commit keys or their values.
+2. Use the production Render service whose public URL is `https://anjola-backend-1.onrender.com`. Confirm `RESEND_API_KEY` has permission to send from the verified domain used by `EMAIL_FROM`. Configure the actual sender on that service, for example `Anjola Aesthetics <orders@anjolaaestheticsng.com>` only if that domain/address is permitted in the Resend account. Verify domain authentication and account sending capacity in Resend. Do not commit keys or their values.
 3. In Resend, register this HTTPS webhook endpoint:
 
-   `https://anjola-backend.onrender.com/api/email-webhooks/resend`
+   `https://anjola-backend-1.onrender.com/api/email-webhooks/resend`
 
    Subscribe to `email.sent`, `email.delivered`, `email.delivery_delayed`, `email.failed`, `email.bounced`, `email.suppressed`, and `email.complained`.
 4. Put that endpoint's signing secret in the Render environment as `RESEND_WEBHOOK_SECRET`, then restart/redeploy the backend. This is a webhook signing secret, not the API key. The route verifies the signature and timestamp over the original body before any database update. Database failures return a retryable HTTP error.
